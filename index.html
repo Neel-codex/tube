@@ -3,227 +3,382 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Crypto Price Action + Volume Profile • Binance</title>
+  <title>Ultimate Price Action Scanner • Strong S/R + Multi-Filter + TP/SL</title>
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.min.js"></script>
   <style>
-    body {
-      margin: 0;
-      font-family: system-ui, sans-serif;
-      background: #0f0f1a;
-      color: #e2e8f0;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-    header {
-      padding: 12px 20px;
-      background: linear-gradient(135deg, #1e293b, #111827);
-      border-bottom: 1px solid #334155;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-    h1 { margin: 0; font-size: 1.45rem; color: #c7d2fe; }
-    .controls { display: flex; gap: 10px; flex-wrap: wrap; }
-    select, button {
-      padding: 9px 16px;
-      background: #1e293b;
-      color: #e2e8f0;
-      border: 1px solid #475569;
-      border-radius: 6px;
-      font-size: 0.92rem;
-      cursor: pointer;
-    }
-    button { background: #6366f1; border-color: #6366f1; font-weight: 600; }
-    button:hover { background: #4f46e5; }
-    #chart { flex: 1; min-height: 500px; }
-    #status {
-      position: absolute;
-      bottom: 16px;
-      left: 16px;
-      background: rgba(15,23,42,0.85);
-      padding: 10px 16px;
-      border-radius: 8px;
-      font-size: 0.9rem;
-      z-index: 10;
-      max-width: 90%;
-    }
-    .buy  { color: #34d399; font-weight: bold; }
-    .sell { color: #f87171; font-weight: bold; }
+    body { margin:0; font-family:system-ui,sans-serif; background:#0f0f1a; color:#e2e8f0; min-height:100vh; display:flex; flex-direction:column; }
+    header { padding:14px 24px; background:linear-gradient(135deg,#1e293b,#111827); border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px; }
+    h1 { margin:0; font-size:1.5rem; color:#c7d2fe; }
+    .controls { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    select, button { padding:10px 18px; background:#1e293b; color:#e2e8f0; border:1px solid #475569; border-radius:8px; font-size:0.95rem; cursor:pointer; }
+    button { background:#6366f1; border-color:#6366f1; font-weight:600; }
+    button:hover { background:#4f46e5; }
+    label { font-size:0.9rem; color:#94a3b8; margin-right:6px; }
+    #chart-container { flex:1; position:relative; min-height:600px; }
+    #status { position:absolute; bottom:20px; left:20px; background:rgba(15,23,42,0.9); padding:12px 20px; border-radius:10px; font-size:0.95rem; z-index:20; max-width:90%; backdrop-filter:blur(6px); border:1px solid #334155; }
+    .buy  { color:#34d399; font-weight:bold; }
+    .sell { color:#f87171; font-weight:bold; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>Crypto Price Action + Volume Profile</h1>
+  <h1>Ultimate Price Action Scanner • All Filters Adjustable</h1>
   <div class="controls">
-    <select id="symbol">
+    <div><label>Symbol</label><select id="symbol">
       <option value="BTCUSDT" selected>BTC/USDT</option>
       <option value="ETHUSDT">ETH/USDT</option>
       <option value="SOLUSDT">SOL/USDT</option>
       <option value="BNBUSDT">BNB/USDT</option>
       <option value="XRPUSDT">XRP/USDT</option>
-      <option value="ADAUSDT">ADA/USDT</option>
-      <option value="DOGEUSDT">DOGE/USDT</option>
-      <option value="TRXUSDT">TRX/USDT</option>
-      <option value="LINKUSDT">LINK/USDT</option>
-      <option value="SUIUSDT">SUI/USDT</option>
-      <option value="TONUSDT">TON/USDT</option>
-      <option value="AVAXUSDT">AVAX/USDT</option>
-    </select>
-    <select id="interval">
+    </select></div>
+
+    <div><label>Timeframe</label><select id="interval">
       <option value="15m">15 min</option>
       <option value="30m">30 min</option>
       <option value="1h" selected>1 hour</option>
       <option value="4h">4 hours</option>
-      <option value="1d">Daily</option>
-    </select>
+    </select></div>
+
+    <div><label>RSI Buy ≤</label><select id="rsiBuy">
+      <option value="30">30</option>
+      <option value="35">35</option>
+      <option value="40" selected>40</option>
+    </select></div>
+
+    <div><label>RSI Sell ≥</label><select id="rsiSell">
+      <option value="60" selected>60</option>
+      <option value="65">65</option>
+      <option value="70">70</option>
+    </select></div>
+
+    <div><label>Stoch Buy ≤</label><select id="stochBuy">
+      <option value="20">20</option>
+      <option value="25">25</option>
+      <option value="30" selected>30</option>
+    </select></div>
+
+    <div><label>Stoch Sell ≥</label><select id="stochSell">
+      <option value="70" selected>70</option>
+      <option value="75">75</option>
+      <option value="80">80</option>
+    </select></div>
+
+    <div><label>BB Touch</label><select id="bbTolerance">
+      <option value="0.005">Very close (0.5%)</option>
+      <option value="0.008" selected>Normal (0.8%)</option>
+      <option value="0.012">Loose (1.2%)</option>
+    </select></div>
+
+    <div><label>Volume × Avg</label><select id="volumeMultiplier">
+      <option value="1.2">1.2×</option>
+      <option value="1.5" selected>1.5×</option>
+      <option value="2.0">2.0×</option>
+    </select></div>
+
     <button onclick="loadChart()">Load / Refresh</button>
   </div>
 </header>
 
-<div id="chart"></div>
-<div id="status">Ready — click Load to start</div>
+<div id="chart-container"></div>
+<div id="status">Ready — adjust filters & click Load</div>
 
 <script>
+// ────────────────────────────────────────────────────────────────
 let chart = null;
 let candleSeries = null;
-let vpSeries = null;
-let pocLine = null;
-let zoneSeries = [];
+let ema9Series = null;
+let ema21Series = null;
+let bbUpperSeries = null;
+let bbMiddleSeries = null;
+let bbLowerSeries = null;
+let srLines = [];
 
 const status = document.getElementById('status');
 
-function binanceToCandle(kline) {
+// ─── Calculation Helpers ─────────────────────────────────────────
+
+function binanceToCandle(k) {
   return {
-    time:   Math.floor(kline[0] / 1000),
-    open:   parseFloat(kline[1]),
-    high:   parseFloat(kline[2]),
-    low:    parseFloat(kline[3]),
-    close:  parseFloat(kline[4]),
-    volume: parseFloat(kline[5])
+    time: Math.floor(k[0]/1000),
+    open:  parseFloat(k[1]),
+    high:  parseFloat(k[2]),
+    low:   parseFloat(k[3]),
+    close: parseFloat(k[4]),
+    volume: parseFloat(k[5])
   };
 }
 
-// ─── Volume Profile (simple visible range approximation) ───
-function buildVolumeProfile(candles) {
-  if (candles.length < 10) return { data: [], poc: null };
-
-  let min = Infinity, max = -Infinity, totalVol = 0;
-  candles.forEach(c => {
-    min = Math.min(min, c.low);
-    max = Math.max(max, c.high);
-    totalVol += c.volume;
-  });
-
-  const range = max - min;
-  if (range <= 0) return { data: [], poc: null };
-
-  const bins = new Array(60).fill(0);
-  const binSize = range / 60;
-
-  candles.forEach(c => {
-    const lowBin  = Math.floor((c.low  - min) / binSize);
-    const highBin = Math.floor((c.high - min) / binSize);
-    const volPer  = c.volume / (highBin - lowBin + 1 || 1);
-    for (let b = lowBin; b <= highBin; b++) {
-      if (b >= 0 && b < 60) bins[b] += volPer;
-    }
-  });
-
-  let maxVol = 0, pocBin = 0;
-  bins.forEach((v,i) => { if (v > maxVol) { maxVol = v; pocBin = i; }});
-
-  const pocPrice = min + (pocBin + 0.5) * binSize;
-
-  const maxBinVol = Math.max(...bins);
-  const data = bins.map((vol, i) => ({
-    time:  min + (i + 0.5) * binSize,
-    value: maxBinVol ? (vol / maxBinVol) * 80 : 0,
-    color: 'rgba(59, 130, 246, 0.65)'
-  }));
-
-  return { data, poc: pocPrice };
+function calculateEMA(prices, period) {
+  const k = 2 / (period + 1);
+  let ema = prices[0];
+  const result = [ema];
+  for (let i = 1; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
+    result.push(ema);
+  }
+  return result;
 }
 
-// ─── Supply / Demand zones (simple swing points) ───
-function findZones(candles, lookback = 6) {
+function calculateATR(candles, period = 14) {
+  const tr = [];
+  for (let i = 1; i < candles.length; i++) {
+    const c = candles[i], p = candles[i-1];
+    tr.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
+  }
+  const atr = [];
+  let sum = tr.slice(0, period).reduce((a,b)=>a+b,0) || 0;
+  atr.push(sum / period || 0);
+  for (let i = period; i < tr.length; i++) {
+    sum = sum - (sum / period) + tr[i];
+    atr.push(sum / period);
+  }
+  while (atr.length < candles.length) atr.unshift(atr[0] || 0);
+  return atr;
+}
+
+function calculateRSI(closes, period = 14) {
+  if (closes.length < period + 1) return new Array(closes.length).fill(50);
+  const gains = [], losses = [];
+  for (let i = 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i-1];
+    gains.push(diff > 0 ? diff : 0);
+    losses.push(diff < 0 ? -diff : 0);
+  }
+  let avgGain = gains.slice(0, period).reduce((a,b)=>a+b,0) / period;
+  let avgLoss = losses.slice(0, period).reduce((a,b)=>a+b,0) / period;
+  const rsi = [100 - (100 / (1 + (avgGain / (avgLoss || 1))))];
+  for (let i = period; i < gains.length; i++) {
+    avgGain = ((avgGain * (period - 1)) + gains[i]) / period;
+    avgLoss = ((avgLoss * (period - 1)) + losses[i]) / period;
+    rsi.push(100 - (100 / (1 + (avgGain / (avgLoss || 1)))));
+  }
+  while (rsi.length < closes.length) rsi.unshift(50);
+  return rsi;
+}
+
+function calculateMACD(closes, fast=12, slow=26, signal=9) {
+  const emaFast  = calculateEMA(closes, fast);
+  const emaSlow  = calculateEMA(closes, slow);
+  const macdLine = emaFast.map((v,i)=>v - emaSlow[i]);
+  const signalLine = calculateEMA(macdLine, signal);
+  const histogram = macdLine.map((v,i)=>v - signalLine[i]);
+  return { macdLine, signalLine, histogram };
+}
+
+function calculateBollingerBands(closes, period=20, stdDev=2) {
+  const middle = calculateEMA(closes, period);
+  const bbUpper = [], bbLower = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (i < period - 1) {
+      bbUpper.push(null); bbLower.push(null); continue;
+    }
+    const slice = closes.slice(i - period + 1, i + 1);
+    const mean = middle[i];
+    const variance = slice.reduce((sum,val)=>sum + Math.pow(val - mean,2),0) / period;
+    const deviation = Math.sqrt(variance);
+    bbUpper.push(mean + stdDev * deviation);
+    bbLower.push(mean - stdDev * deviation);
+  }
+  return { upper: bbUpper, middle, lower: bbLower };
+}
+
+function calculateStochastic(candles, kPeriod=14, smoothK=3, smoothD=3) {
+  const stoch = [];
+  for (let i = kPeriod - 1; i < candles.length; i++) {
+    const highs = candles.slice(i - kPeriod + 1, i + 1).map(c=>c.high);
+    const lows  = candles.slice(i - kPeriod + 1, i + 1).map(c=>c.low);
+    const highest = Math.max(...highs);
+    const lowest  = Math.min(...lows);
+    const kRaw = highest === lowest ? 50 : 100 * (candles[i].close - lowest) / (highest - lowest);
+    stoch.push(kRaw);
+  }
+  const k = calculateEMA(stoch, smoothK);
+  const d = calculateEMA(k, smoothD);
+  while (k.length < candles.length) k.unshift(50);
+  while (d.length < candles.length) d.unshift(50);
+  return { k, d };
+}
+
+function calculateAvgVolume(candles, lookback = 20) {
+  const avg = [];
+  for (let i = 0; i < candles.length; i++) {
+    if (i < lookback - 1) { avg.push(0); continue; }
+    const sum = candles.slice(i - lookback + 1, i + 1).reduce((s,c)=>s + c.volume, 0);
+    avg.push(sum / lookback);
+  }
+  return avg;
+}
+
+// ─── Strong S/R ───────────────────────────────────────────────────
+function findStrongSR(candles, lookback=8, minTouches=2) {
   const supports = [], resistances = [];
   for (let i = lookback; i < candles.length - lookback; i++) {
     const c = candles[i];
-    let isLow  = true, isHigh = true;
-    for (let j = 1; j <= lookback; j++) {
-      if (candles[i-j].low  <= c.low)  isLow  = false;
-      if (candles[i+j].low  <= c.low)  isLow  = false;
-      if (candles[i-j].high >= c.high) isHigh = false;
-      if (candles[i+j].high >= c.high) isHigh = false;
+    let lowCount=0, highCount=0;
+    for (let j=1; j<=lookback; j++) {
+      if (Math.abs(candles[i-j].low  - c.low)  / c.low  < 0.004) lowCount++;
+      if (Math.abs(candles[i+j].low  - c.low)  / c.low  < 0.004) lowCount++;
+      if (Math.abs(candles[i-j].high - c.high) / c.high < 0.004) highCount++;
+      if (Math.abs(candles[i+j].high - c.high) / c.high < 0.004) highCount++;
     }
-    if (isLow)  supports.push(c.low);
-    if (isHigh) resistances.push(c.high);
+    if (lowCount >= minTouches) supports.push({price:c.low, strength:lowCount});
+    if (highCount >= minTouches) resistances.push({price:c.high, strength:highCount});
   }
 
   const merge = arr => {
     if (!arr.length) return [];
-    arr.sort((a,b)=>a-b);
-    const res = [arr[0]];
-    for (let i = 1; i < arr.length; i++)
-      if (Math.abs(arr[i] - res[res.length-1]) / res[res.length-1] > 0.005)
-        res.push(arr[i]);
-    return res;
+    arr.sort((a,b)=>a.price-b.price);
+    const result = [arr[0]];
+    for (let i=1; i<arr.length; i++) {
+      const prev = result[result.length-1];
+      if (Math.abs(arr[i].price - prev.price)/prev.price < 0.006) {
+        if (arr[i].strength > prev.strength) result[result.length-1] = arr[i];
+      } else result.push(arr[i]);
+    }
+    return result;
   };
 
   return { supports: merge(supports), resistances: merge(resistances) };
 }
 
-// ─── Basic pattern markers ───
-function detectPatterns(candles) {
+function drawSR(sr) {
+  srLines.forEach(l => chart.removeSeries(l)); srLines = [];
+  const tStart = candles[0].time - 86400*2;
+  const tEnd   = candles[candles.length-1].time + 86400*2;
+
+  sr.supports.forEach(s => {
+    const line = chart.addLineSeries({color:'#22c55e', lineWidth:2, lineStyle:2});
+    line.setData([{time:tStart,value:s.price},{time:tEnd,value:s.price}]);
+    srLines.push(line);
+  });
+
+  sr.resistances.forEach(r => {
+    const line = chart.addLineSeries({color:'#ef4444', lineWidth:2, lineStyle:2});
+    line.setData([{time:tStart,value:r.price},{time:tEnd,value:r.price}]);
+    srLines.push(line);
+  });
+}
+
+// ─── Signals with ALL filters (including adjustable volume) ───────
+function generateSignalsAndRisk(candles, sr, ema9, ema21, atr, rsi, macd, bb, stoch, avgVol, settings) {
   const markers = [];
-  for (let i = 1; i < candles.length; i++) {
-    const p = candles[i-1], c = candles[i];
-    const body = Math.abs(c.close - c.open);
-    const range = c.high - c.low;
-    const upper = c.high - Math.max(c.open, c.close);
-    const lower = Math.min(c.open, c.close) - c.low;
 
-    if (lower > 2 * body && upper < body * 0.5)
-      markers.push({ time: c.time, position: 'belowBar', color: '#10b981', shape: 'arrowUp',   text: 'Hammer' });
-    if (upper > 2 * body && lower < body * 0.5)
-      markers.push({ time: c.time, position: 'aboveBar', color: '#ef4444', shape: 'arrowDown', text: 'Shooting Star' });
-    if (body < range * 0.1 && Math.max(upper, lower) < range * 0.15)
-      markers.push({ time: c.time, position: 'aboveBar', color: '#fbbf24', shape: 'circle',    text: 'Doji' });
+  const rsiBuy     = parseInt(settings.rsiBuy);
+  const rsiSell    = parseInt(settings.rsiSell);
+  const stochBuy   = parseInt(settings.stochBuy);
+  const stochSell  = parseInt(settings.stochSell);
+  const bbTol      = parseFloat(settings.bbTolerance);
+  const volMult    = parseFloat(settings.volumeMultiplier);
 
-    if (p.close < p.open && c.close > c.open && c.open <= p.close && c.close >= p.open)
-      markers.push({ time: c.time, position: 'belowBar', color: '#059669', shape: 'circle', text: 'Bull Engulf' });
-    if (p.close > p.open && c.close < c.open && c.open >= p.close && c.close <= p.open)
-      markers.push({ time: c.time, position: 'aboveBar', color: '#dc2626', shape: 'circle', text: 'Bear Engulf' });
+  for (let i = Math.max(60, 70); i < candles.length; i++) {
+    const c = candles[i];
+    const close = c.close;
+    const e9  = ema9[i]  || ema9[ema9.length-1];
+    const e21 = ema21[i] || ema21[ema21.length-1];
+    const currentATR = atr[i]  || atr[atr.length-1];
+    const currentRSI = rsi[i]  || 50;
+    const currentVol = c.volume;
+    const avgVolume  = avgVol[i] || 0;
+
+    const macdLine   = macd.macdLine[i]   || 0;
+    const signalLine = macd.signalLine[i] || 0;
+    const hist       = macd.histogram[i]  || 0;
+    const prevHist   = i > 0 ? macd.histogram[i-1] : hist;
+
+    const bbUpper = bb.upper[i] || close;
+    const bbLower = bb.lower[i] || close;
+
+    const stochK = stoch.k[i] || 50;
+    const stochD = stoch.d[i] || 50;
+    const prevK  = i > 0 ? stoch.k[i-1] : stochK;
+    const prevD  = i > 0 ? stoch.d[i-1] : stochD;
+
+    const nearSupport    = sr.supports.some(s => Math.abs(close - s.price)/s.price < 0.008);
+    const nearResistance = sr.resistances.some(r => Math.abs(close - r.price)/r.price < 0.008);
+
+    const bullishMACD = (macdLine > signalLine && (macdLine - signalLine) > ((macdLine[i-1]||0) - (signalLine[i-1]||0))) ||
+                        (hist > 0 && hist > prevHist);
+
+    const bearishMACD = (macdLine < signalLine && (macdLine - signalLine) < ((macdLine[i-1]||0) - (signalLine[i-1]||0))) ||
+                        (hist < 0 && hist < prevHist);
+
+    const bbBuyCondition  = close <= bbLower * (1 + bbTol);
+    const bbSellCondition = close >= bbUpper * (1 - bbTol);
+
+    const bullishStoch = (stochK > stochD && prevK <= prevD && stochK <= stochBuy);
+    const bearishStoch = (stochK < stochD && prevK >= prevD && stochK >= stochSell);
+
+    const highVolume = currentVol >= avgVolume * volMult;
+
+    // BUY ───────────────────────────────────────────────────────────
+    if (close > e9 && e9 > e21 && nearSupport && c.close > c.open &&
+        currentRSI <= rsiBuy && bullishMACD && bbBuyCondition && bullishStoch && highVolume) {
+      const entry = close;
+      const sl = entry - currentATR * 1.0;
+      const tp = entry + currentATR * 1.8;
+
+      markers.push(
+        { time: c.time, position: 'belowBar', color: '#34d399', shape: 'arrowUp',   text: 'BUY',   size: 2 },
+        { time: c.time, position: 'belowBar', color: '#34d399', shape: 'circle',   text: `TP ${tp.toFixed(2)}`,   size: 1, yOffset: -65 },
+        { time: c.time, position: 'belowBar', color: '#f87171', shape: 'circle',   text: `SL ${sl.toFixed(2)}`,   size: 1, yOffset:  40 }
+      );
+    }
+
+    // SELL ──────────────────────────────────────────────────────────
+    if (close < e9 && e9 < e21 && nearResistance && c.close < c.open &&
+        currentRSI >= rsiSell && bearishMACD && bbSellCondition && bearishStoch && highVolume) {
+      const entry = close;
+      const sl = entry + currentATR * 1.0;
+      const tp = entry - currentATR * 1.8;
+
+      markers.push(
+        { time: c.time, position: 'aboveBar', color: '#f87171', shape: 'arrowDown', text: 'SELL',  size: 2 },
+        { time: c.time, position: 'aboveBar', color: '#f87171', shape: 'circle',    text: `TP ${tp.toFixed(2)}`,   size: 1, yOffset:  65 },
+        { time: c.time, position: 'aboveBar', color: '#34d399', shape: 'circle',    text: `SL ${sl.toFixed(2)}`,   size: 1, yOffset: -40 }
+      );
+    }
   }
+
   return markers;
 }
 
 async function loadChart() {
   const symbol   = document.getElementById('symbol').value;
   const interval = document.getElementById('interval').value;
-  status.textContent = `Loading ${symbol} ${interval}...`;
+  const rsiBuy   = document.getElementById('rsiBuy').value;
+  const rsiSell  = document.getElementById('rsiSell').value;
+  const stochBuy = document.getElementById('stochBuy').value;
+  const stochSell= document.getElementById('stochSell').value;
+  const bbTol    = document.getElementById('bbTolerance').value;
+  const volMult  = document.getElementById('volumeMultiplier').value;
+
+  const settings = {
+    rsiBuy,
+    rsiSell,
+    stochBuy,
+    stochSell,
+    bbTolerance: bbTol,
+    volumeMultiplier: volMult
+  };
+
+  status.textContent = `Loading ${symbol} ${interval} with custom filters...`;
 
   try {
-    const resp = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=400`);
-    if (!resp.ok) throw new Error('Binance fetch failed');
-    const data = await resp.json();
-    if (!data.length) throw new Error('No data returned');
-
-    const candles = data.map(binanceToCandle);
+    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=500`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Binance error');
+    const raw = await res.json();
+    const candlesData = raw.map(binanceToCandle);
 
     if (!chart) {
-      chart = LightweightCharts.createChart(document.getElementById('chart'), {
-        width: document.getElementById('chart').clientWidth,
-        height: document.getElementById('chart').clientHeight,
-        layout: { background: { type: 'solid', color: '#0f0f1a' }, textColor: '#d1d5db' },
+      chart = LightweightCharts.createChart(document.getElementById('chart-container'), {
+        width: document.getElementById('chart-container').clientWidth,
+        height: document.getElementById('chart-container').clientHeight,
+        layout: { background: { type: 'solid', color: '#0f0f1a' }, textColor: '#cbd5e1' },
         grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
         timeScale: { timeVisible: true, secondsVisible: false },
-        rightPriceScale: { borderColor: '#334155' },
-        leftPriceScale: { visible: true, borderColor: '#334155' }
+        rightPriceScale: { borderColor: '#334155' }
       });
 
       candleSeries = chart.addCandlestickSeries({
@@ -232,53 +387,42 @@ async function loadChart() {
         borderVisible: false
       });
 
-      vpSeries = chart.addHistogramSeries({
-        color: 'rgba(59,130,246,0.55)',
-        priceScaleId: 'left',
-        priceLineVisible: false,
-        lastValueVisible: false
-      });
+      ema9Series  = chart.addLineSeries({ color: '#fbbf24', lineWidth: 2 });
+      ema21Series = chart.addLineSeries({ color: '#a78bfa', lineWidth: 2 });
+
+      bbUpperSeries = chart.addLineSeries({ color: '#60a5fa', lineWidth: 1, lineStyle: 3 });
+      bbMiddleSeries = chart.addLineSeries({ color: '#94a3b8', lineWidth: 1 });
+      bbLowerSeries = chart.addLineSeries({ color: '#60a5fa', lineWidth: 1, lineStyle: 3 });
     }
 
-    candleSeries.setData(candles);
+    candleSeries.setData(candlesData);
 
-    // Clear old markers & zones
-    candleSeries.setMarkers([]);
-    zoneSeries.forEach(s => chart.removeSeries(s)); zoneSeries = [];
-    if (pocLine) { chart.removeSeries(pocLine); pocLine = null; }
+    const closes = candlesData.map(c => c.close);
+    const ema9   = calculateEMA(closes, 9);
+    const ema21  = calculateEMA(closes, 21);
 
-    // Zones
-    const { supports, resistances } = findZones(candles);
-    const tStart = candles[0].time - 86400*2;
-    const tEnd   = candles[candles.length-1].time + 86400*2;
+    ema9Series.setData(candlesData.map((c,i) => ({time:c.time, value:ema9[i]})));
+    ema21Series.setData(candlesData.map((c,i) => ({time:c.time, value:ema21[i]})));
 
-    supports.forEach(price => {
-      const s = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, lineStyle: 2 });
-      s.setData([{time:tStart, value:price}, {time:tEnd, value:price}]);
-      zoneSeries.push(s);
-    });
+    const atr   = calculateATR(candlesData, 14);
+    const rsi   = calculateRSI(closes, 14);
+    const macd  = calculateMACD(closes, 12, 26, 9);
+    const bb    = calculateBollingerBands(closes, 20, 2);
+    const stoch = calculateStochastic(candlesData, 14, 3, 3);
+    const avgVol = calculateAvgVolume(candlesData, 20);
 
-    resistances.forEach(price => {
-      const s = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, lineStyle: 2 });
-      s.setData([{time:tStart, value:price}, {time:tEnd, value:price}]);
-      zoneSeries.push(s);
-    });
+    bbUpperSeries.setData(candlesData.map((c,i) => ({time:c.time, value:bb.upper[i]})));
+    bbMiddleSeries.setData(candlesData.map((c,i) => ({time:c.time, value:bb.middle[i]})));
+    bbLowerSeries.setData(candlesData.map((c,i) => ({time:c.time, value:bb.lower[i]})));
 
-    // Patterns
-    const markers = detectPatterns(candles);
-    if (markers.length) candleSeries.setMarkers(markers);
+    const sr = findStrongSR(candlesData, 8, 2);
+    drawSR(sr);
 
-    // Volume Profile
-    const vp = buildVolumeProfile(candles);
-    vpSeries.setData(vp.data);
+    const markers = generateSignalsAndRisk(candlesData, sr, ema9, ema21, atr, rsi, macd, bb, stoch, avgVol, settings);
+    candleSeries.setMarkers(markers);
 
-    if (vp.poc) {
-      pocLine = chart.addLineSeries({ color: '#f97316', lineWidth: 2, lineStyle: 2 });
-      pocLine.setData([{time:tStart, value:vp.poc}, {time:tEnd, value:vp.poc}]);
-    }
-
-    // Final status
-    status.innerHTML = `${markers.length} patterns detected • POC ≈ ${vp.poc ? vp.poc.toFixed(2) : '—'}`;
+    let msg = `${(markers.length / 3) | 0} high-conviction setups • ${sr.supports.length} strong supports • ${sr.resistances.length} strong resistances`;
+    status.innerHTML = msg;
 
     chart.timeScale().fitContent();
 
@@ -291,10 +435,11 @@ async function loadChart() {
 window.addEventListener('load', loadChart);
 window.addEventListener('resize', () => {
   if (chart) chart.applyOptions({
-    width: document.getElementById('chart').clientWidth,
-    height: document.getElementById('chart').clientHeight
+    width: document.getElementById('chart-container').clientWidth,
+    height: document.getElementById('chart-container').clientHeight
   });
 });
 </script>
+
 </body>
 </html>
