@@ -1,86 +1,403 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pro Video Hub</title>
-    <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Crypto Price Action + Volume Profile • Binance High Liquidity</title>
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0a0a12;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 14px 20px;
+      background: linear-gradient(135deg, #1e1e2e, #111118);
+      border-bottom: 1px solid #334155;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.5rem;
+      color: #c7d2fe;
+    }
+    .controls {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    select, button {
+      padding: 10px 16px;
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid #475569;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    button {
+      background: #6366f1;
+      border-color: #6366f1;
+      font-weight: 600;
+    }
+    button:hover { background: #4f46e5; }
+    #chart-container {
+      flex: 1;
+      position: relative;
+      min-height: 600px;
+    }
+    #status {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      background: rgba(15,23,42,0.85);
+      padding: 12px 18px;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      z-index: 20;
+      max-width: 90%;
+      backdrop-filter: blur(6px);
+      border: 1px solid #334155;
+    }
+    .signal-buy { color: #34d399; font-weight: bold; }
+    .signal-sell { color: #f87171; font-weight: bold; }
+  </style>
 </head>
 <body>
 
-    <header class="main-header">
-        <div class="container">
-            <div class="logo">ProVideo Hub</div>
-            <nav class="main-nav">
-                <a href="#">Home</a>
-                <a href="#">Explore</a>
-                <a href="#">Categories</a>
-            </nav>
-        </div>
-    </header>
+<header>
+  <h1>Price Action + Volume Profile Scanner</h1>
+  <div class="controls">
+    <select id="symbol">
+      <option value="BTCUSDT" selected>BTC/USDT (Top Liquidity)</option>
+      <option value="ETHUSDT">ETH/USDT</option>
+      <option value="SOLUSDT">SOL/USDT</option>
+      <option value="BNBUSDT">BNB/USDT</option>
+      <option value="XRPUSDT">XRP/USDT</option>
+      <option value="ADAUSDT">ADA/USDT</option>
+      <option value="DOGEUSDT">DOGE/USDT</option>
+      <option value="TRXUSDT">TRX/USDT</option>
+      <option value="LINKUSDT">LINK/USDT</option>
+      <option value="SUIUSDT">SUI/USDT</option>
+      <option value="TONUSDT">TON/USDT</option>
+      <option value="AVAXUSDT">AVAX/USDT</option>
+      <option value="PEPEUSDT">PEPE/USDT</option>
+    </select>
 
-    <div class="page-container">
-        <main class="video-main-content">
-            <div class="ad-space-top">
-                <img src="https://via.placeholder.com/970x90.png?text=Top+Banner+Advertisement" alt="Top Advertisement">
-            </div>
+    <select id="interval">
+      <option value="15m">15 min</option>
+      <option value="30m">30 min</option>
+      <option value="1h" selected>1 hour (Recommended)</option>
+      <option value="4h">4 hours</option>
+      <option value="1d">Daily</option>
+    </select>
 
-            <div class="video-player-section">
-                <div class="video-wrapper">
-                    <video id="main-video" controls poster="https://via.placeholder.com/1280x720.png?text=Video+Thumbnail">
-                        <source src="/new.mp4" type="video/mp4">
-                        Your browser does not support the video tag.
-                    </video>
-                </div>
-                <div class="video-details">
-                    <h1 class="video-title">Your Awesome Video Title Goes Here</h1>
-                    <div class="video-meta">
-                        <div class="video-stats">
-                            <span id="view-count">111,234</span> views
-                        </div>
-                        <div class="video-actions">
-                            <button id="like-btn">Like (<span id="like-count">123</span>)</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="video-description">
-                    <p>This is a sample description for the video. You can provide more details about the content, the creator, and any other relevant information here.</p>
-                </div>
-            </div>
+    <button onclick="loadChart()">Load / Refresh</button>
+  </div>
+</header>
 
-            <div class="ad-space-bottom">
-                <img src="https://via.placeholder.com/970x90.png?text=Bottom+Banner+Advertisement" alt="Bottom Advertisement">
-            </div>
-        </main>
+<div id="chart-container"></div>
+<div id="status">Ready — select coin & timeframe, then click Load</div>
 
-        <aside class="sidebar">
-            <div class="ad-space-sidebar">
-                <img src="https://via.placeholder.com/300x250.png?text=Sidebar+Ad" alt="Sidebar Advertisement">
-            </div>
-            <div class="related-videos">
-                <h3>Related Videos</h3>
-                <ul>
-                    <li><a href="#">Related Video 1</a></li>
-                    <li><a href="#">Related Video 2</a></li>
-                    <li><a href="#">Related Video 3</a></li>
-                </ul>
-            </div>
-        </aside>
-    </div>
+<script>
+let chart = null;
+let candleSeries = null;
+let volumeProfileSeries = null;
+let pocLine = null;
+let vahLine = null;
+let valLine = null;
+let zoneSeries = [];
 
-    <footer class="main-footer">
-        <div class="container">
-            <p>&copy; 2025 ProVideo Hub. All rights reserved.</p>
-        </div>
-    </footer>
+const statusEl = document.getElementById('status');
 
-    <nav class="mobile-nav">
-        <a href="#" class="nav-item active">Home</a>
-        <a href="#" class="nav-item">Trending</a>
-        <a href="#" class="nav-item">Profile</a>
-    </nav>
+function binanceToCandle(k) {
+  return {
+    time: Math.floor(k[0] / 1000),
+    open: parseFloat(k[1]),
+    high: parseFloat(k[2]),
+    low: parseFloat(k[3]),
+    close: parseFloat(k[4]),
+    volume: parseFloat(k[5])
+  };
+}
 
-    <script src="js/script.js"></script>
+// Volume Profile (Visible Range style)
+function calculateVolumeProfile(candles, binCount = 70) {
+  if (!candles || candles.length === 0) return { data: [], poc: null, vah: null, val: null };
+
+  let minP = Infinity, maxP = -Infinity;
+  let totalVol = 0;
+  candles.forEach(c => {
+    minP = Math.min(minP, c.low);
+    maxP = Math.max(maxP, c.high);
+    totalVol += c.volume;
+  });
+
+  if (maxP <= minP) return { data: [], poc: null, vah: null, val: null };
+
+  const binSize = (maxP - minP) / binCount;
+  const bins = new Array(binCount).fill(0);
+
+  candles.forEach(c => {
+    const lowBin = Math.max(0, Math.floor((c.low - minP) / binSize));
+    const highBin = Math.min(binCount - 1, Math.floor((c.high - minP) / binSize));
+    const volPerBin = c.volume / (highBin - lowBin + 1);
+    for (let b = lowBin; b <= highBin; b++) bins[b] += volPerBin;
+  });
+
+  let maxVol = 0, pocIdx = 0;
+  bins.forEach((v, i) => { if (v > maxVol) { maxVol = v; pocIdx = i; } });
+  const poc = minP + (pocIdx + 0.5) * binSize;
+
+  // Value Area ~70%
+  const target = totalVol * 0.7;
+  let accumulated = 0;
+  let vahIdx = pocIdx, valIdx = pocIdx;
+  const sorted = bins.map((v, i) => ({v, i})).sort((a,b) => b.v - a.v);
+  for (let item of sorted) {
+    accumulated += item.v;
+    if (item.i > vahIdx) vahIdx = item.i;
+    if (item.i < valIdx) valIdx = item.i;
+    if (accumulated >= target) break;
+  }
+  const vah = minP + (vahIdx + 1) * binSize;
+  const val = minP + valIdx * binSize;
+
+  const maxBin = Math.max(...bins);
+  const profileData = bins.map((vol, i) => ({
+    time: minP + (i + 0.5) * binSize,  // price as "time"
+    value: vol ? (vol / maxBin) * 100 : 0,
+    color: 'rgba(100, 181, 246, 0.7)'
+  }));
+
+  return { data: profileData, poc, vah, val };
+}
+
+// Supply/Demand Zones
+function findSupplyDemandZones(candles, lookback = 7) {
+  const demand = [], supply = [];
+  for (let i = lookback; i < candles.length - lookback; i++) {
+    const c = candles[i];
+    let isLow = true, isHigh = true;
+    for (let j = 1; j <= lookback; j++) {
+      if (candles[i-j].low <= c.low || candles[i+j].low <= c.low) isLow = false;
+      if (candles[i-j].high >= c.high || candles[i+j].high >= c.high) isHigh = false;
+    }
+    if (isLow) demand.push(c.low);
+    if (isHigh) supply.push(c.high);
+  }
+
+  const merge = (arr, tol = 0.006) => {
+    if (arr.length === 0) return [];
+    arr.sort((a,b) => a-b);
+    const zones = [];
+    let cur = arr[0];
+    for (let i = 1; i < arr.length; i++) {
+      if ((arr[i] / cur - 1) < tol) cur = (cur + arr[i]) / 2;
+      else { zones.push(cur); cur = arr[i]; }
+    }
+    zones.push(cur);
+    return zones.map(p => ({ top: p * 1.004, bottom: p * 0.996 }));
+  };
+
+  return { demandZones: merge(demand), supplyZones: merge(supply) };
+}
+
+// All Patterns with Labels
+function detectPatterns(candles) {
+  const markers = [];
+  for (let i = 1; i < candles.length; i++) {
+    const p = candles[i-1], c = candles[i];
+    const bodyP = Math.abs(p.close - p.open), bodyC = Math.abs(c.close - c.open);
+    const upper = c.high - Math.max(c.open, c.close);
+    const lower = Math.min(c.open, c.close) - c.low;
+    const range = c.high - c.low;
+
+    // Hammer / Shooting Star
+    if (lower > 2 * bodyC && upper < 0.3 * bodyC && bodyC < range * 0.35)
+      markers.push({ time: c.time, position: 'belowBar', color: '#34d399', shape: 'arrowUp', text: 'Hammer' });
+    if (upper > 2 * bodyC && lower < 0.3 * bodyC && bodyC < range * 0.35)
+      markers.push({ time: c.time, position: 'aboveBar', color: '#f87171', shape: 'arrowDown', text: 'Shooting Star' });
+
+    // Doji
+    if (Math.max(upper, lower) < 0.12 * range && bodyC < range * 0.12)
+      markers.push({ time: c.time, position: 'aboveBar', color: '#fbbf24', shape: 'circle', text: 'Doji' });
+
+    // Engulfing
+    if (p.close < p.open && c.close > c.open && c.open <= p.close && c.close >= p.open)
+      markers.push({ time: c.time, position: 'belowBar', color: '#10b981', shape: 'circle', text: 'Bull Engulf' });
+    if (p.close > p.open && c.close < c.open && c.open >= p.close && c.close <= p.open)
+      markers.push({ time: c.time, position: 'aboveBar', color: '#ef4444', shape: 'circle', text: 'Bear Engulf' });
+
+    // Harami
+    if (p.close < p.open && c.close > c.open && c.open > p.open && c.close < p.close && bodyC < bodyP * 0.6)
+      markers.push({ time: c.time, position: 'belowBar', color: '#6ee7b7', shape: 'triangleUp', text: 'Bull Harami' });
+    if (p.close > p.open && c.close < c.open && c.open < p.open && c.close > p.close && bodyC < bodyP * 0.6)
+      markers.push({ time: c.time, position: 'aboveBar', color: '#fca5a5', shape: 'triangleDown', text: 'Bear Harami' });
+
+    // Inside Bar
+    if (c.high <= p.high && c.low >= p.low)
+      markers.push({ time: c.time, position: c.close > c.open ? 'belowBar' : 'aboveBar', color: c.close > c.open ? '#a5b4fc' : '#fda4af', shape: 'triangleUp', text: 'Inside Bar' });
+  }
+
+  // Morning / Evening Star
+  for (let i = 2; i < candles.length; i++) {
+    const a = candles[i-2], b = candles[i-1], c = candles[i];
+    if (a.close < a.open && Math.abs(b.close - b.open) < (a.high-a.low)*0.35 && c.close > c.open && c.close > (a.open + a.close)/2)
+      markers.push({ time: c.time, position: 'belowBar', color: '#059669', shape: 'arrowUp', text: 'Morning Star' });
+    if (a.close > a.open && Math.abs(b.close - b.open) < (a.high-a.low)*0.35 && c.close < c.open && c.close < (a.open + a.close)/2)
+      markers.push({ time: c.time, position: 'aboveBar', color: '#dc2626', shape: 'arrowDown', text: 'Evening Star' });
+  }
+
+  // 3 Soldiers / Crows
+  for (let i = 3; i < candles.length; i++) {
+    const d = candles[i-3], a = candles[i-2], b = candles[i-1], c = candles[i];
+    if (d.close > d.open && a.close > a.open && b.close > b.open && c.close > c.open &&
+        a.close > d.close && b.close > a.close && c.close > b.close)
+      markers.push({ time: c.time, position: 'belowBar', color: '#065f46', shape: 'arrowUp', text: '3 Soldiers' });
+    if (d.close < d.open && a.close < a.open && b.close < b.open && c.close < c.open &&
+        a.close < d.close && b.close < a.close && c.close < b.close)
+      markers.push({ time: c.time, position: 'aboveBar', color: '#991b1b', shape: 'arrowDown', text: '3 Crows' });
+  }
+
+  return markers;
+}
+
+async function loadChart() {
+  const symbol = document.getElementById('symbol').value;
+  const interval = document.getElementById('interval').value;
+  const limit = 500;
+  statusEl.textContent = `Loading ${symbol} ${interval}...`;
+
+  try {
+    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('API error');
+    const raw = await res.json();
+    if (raw.length === 0) throw new Error('No data');
+
+    const candles = raw.map(binanceToCandle);
+
+    // Initialize chart once
+    if (!chart) {
+      const cont = document.getElementById('chart-container');
+      chart = LightweightCharts.createChart(cont, {
+        width: cont.clientWidth,
+        height: cont.clientHeight,
+        layout: { background: { type: 'solid', color: '#0a0a12' }, textColor: '#cbd5e1' },
+        grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
+        timeScale: { timeVisible: true, secondsVisible: false },
+        rightPriceScale: { borderColor: '#334155' },
+        leftPriceScale: { visible: true, borderColor: '#334155' },
+      });
+
+      candleSeries = chart.addCandlestickSeries({
+        upColor: '#10b981', downColor: '#ef4444',
+        wickUpColor: '#10b981', wickDownColor: '#ef4444',
+        borderVisible: false
+      });
+
+      volumeProfileSeries = chart.addHistogramSeries({
+        color: 'rgba(100, 181, 246, 0.6)',
+        priceScaleId: 'left',
+        priceLineVisible: false,
+        lastValueVisible: false
+      });
+    }
+
+    candleSeries.setData(candles);
+
+    // Clear previous
+    candleSeries.setMarkers([]);
+    zoneSeries.forEach(s => chart.removeSeries(s));
+    zoneSeries = [];
+    [pocLine, vahLine, valLine].forEach(l => l && chart.removeSeries(l));
+    pocLine = vahLine = valLine = null;
+
+    // Zones
+    const { demandZones, supplyZones } = findSupplyDemandZones(candles);
+    const timeStart = candles[0].time - 86400;
+    const timeEnd = candles[candles.length-1].time + 86400;
+
+    demandZones.forEach(z => {
+      const s = chart.addAreaSeries({
+        topColor: 'rgba(16,185,129,0.09)',
+        bottomColor: 'rgba(16,185,129,0.01)',
+        lineColor: '#10b981', lineWidth: 1
+      });
+      s.setData([
+        { time: timeStart, value: z.top },
+        { time: timeEnd, value: z.top },
+        { time: timeEnd, value: z.bottom },
+        { time: timeStart, value: z.bottom }
+      ]);
+      zoneSeries.push(s);
+    });
+
+    supplyZones.forEach(z => {
+      const s = chart.addAreaSeries({
+        topColor: 'rgba(239,68,68,0.09)',
+        bottomColor: 'rgba(239,68,68,0.01)',
+        lineColor: '#ef4444', lineWidth: 1
+      });
+      s.setData([
+        { time: timeStart, value: z.top },
+        { time: timeEnd, value: z.top },
+        { time: timeEnd, value: z.bottom },
+        { time: timeStart, value: z.bottom }
+      ]);
+      zoneSeries.push(s);
+    });
+
+    // Patterns
+    const markers = detectPatterns(candles);
+    candleSeries.setMarkers(markers);
+
+    // Volume Profile
+    const vp = calculateVolumeProfile(candles, 70);
+    volumeProfileSeries.setData(vp.data);
+
+    if (vp.poc) {
+      pocLine = chart.addLineSeries({ color: '#ef4444', lineWidth: 2, lineStyle: 2 });
+      pocLine.setData([{ time: timeStart, value: vp.poc }, { time: timeEnd, value: vp.poc }]);
+
+      vahLine = chart.addLineSeries({ color: '#10b981', lineWidth: 1, lineStyle: 3 });
+      vahLine.setData([{ time: timeStart, value: vp.vah }, { time: timeEnd, value: vp.vah }]);
+
+      valLine = chart.addLineSeries({ color: '#10b981', lineWidth: 1, lineStyle: 3 });
+      valLine.setData([{ time: timeStart, value: vp.val }, { time: timeEnd, value: vp.val }]);
+    }
+
+    // Status
+    let msg = `${markers.length} patterns • ${demandZones.length} Demand • ${supplyZones.length} Supply`;
+    if (vp.poc) msg += ` • POC ≈ ${vp.poc.toFixed(2)}`;
+    statusEl.innerHTML = msg;
+
+    chart.timeScale().fitContent();
+
+  } catch (err) {
+    statusEl.textContent = 'Error: ' + err.message;
+    console.error(err);
+  }
+}
+
+window.addEventListener('load', loadChart);
+window.addEventListener('resize', () => {
+  if (chart) chart.applyOptions({
+    width: document.getElementById('chart-container').clientWidth,
+    height: document.getElementById('chart-container').clientHeight
+  });
+});
+</script>
+
 </body>
 </html>
