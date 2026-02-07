@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Ultimate Price Action Scanner • Strong S/R + Multi-Filter + TP/SL</title>
+  <title>Ultimate Real-Time Price Action Scanner • All Filters + WebSocket</title>
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.min.js"></script>
   <style>
     body { margin:0; font-family:system-ui,sans-serif; background:#0f0f1a; color:#e2e8f0; min-height:100vh; display:flex; flex-direction:column; }
@@ -18,12 +18,14 @@
     #status { position:absolute; bottom:20px; left:20px; background:rgba(15,23,42,0.9); padding:12px 20px; border-radius:10px; font-size:0.95rem; z-index:20; max-width:90%; backdrop-filter:blur(6px); border:1px solid #334155; }
     .buy  { color:#34d399; font-weight:bold; }
     .sell { color:#f87171; font-weight:bold; }
+    .connected { color:#34d399; }
+    .disconnected { color:#f87171; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>Ultimate Price Action Scanner • All Filters Adjustable</h1>
+  <h1>Ultimate Real-Time Scanner • All Filters Adjustable</h1>
   <div class="controls">
     <div><label>Symbol</label><select id="symbol">
       <option value="BTCUSDT" selected>BTC/USDT</option>
@@ -76,12 +78,18 @@
       <option value="2.0">2.0×</option>
     </select></div>
 
-    <button onclick="loadChart()">Load / Refresh</button>
+    <div><label>ADX ≥</label><select id="adxThreshold">
+      <option value="20">20 (any trend)</option>
+      <option value="25" selected>25 (strong)</option>
+      <option value="30">30 (very strong)</option>
+    </select></div>
+
+    <button onclick="startRealtime()">Start / Refresh</button>
   </div>
 </header>
 
 <div id="chart-container"></div>
-<div id="status">Ready — adjust filters & click Load</div>
+<div id="status">Ready — click Start / Refresh</div>
 
 <script>
 // ────────────────────────────────────────────────────────────────
@@ -92,12 +100,16 @@ let ema21Series = null;
 let bbUpperSeries = null;
 let bbMiddleSeries = null;
 let bbLowerSeries = null;
+let psarSeries = null;
 let srLines = [];
+let candles = [];
+let ws = null;
+let reconnectAttempts = 0;
+let lastCandleTime = null;
 
 const status = document.getElementById('status');
 
-// ─── Calculation Helpers ─────────────────────────────────────────
-
+// ─── Binance candle format ───────────────────────────────────────
 function binanceToCandle(k) {
   return {
     time: Math.floor(k[0]/1000),
@@ -109,7 +121,10 @@ function binanceToCandle(k) {
   };
 }
 
+// ─── Indicator Calculations ───────────────────────────────────────
+
 function calculateEMA(prices, period) {
+  if (!prices?.length) return [];
   const k = 2 / (period + 1);
   let ema = prices[0];
   const result = [ema];
@@ -121,6 +136,7 @@ function calculateEMA(prices, period) {
 }
 
 function calculateATR(candles, period = 14) {
+  if (!candles?.length) return [];
   const tr = [];
   for (let i = 1; i < candles.length; i++) {
     const c = candles[i], p = candles[i-1];
@@ -138,7 +154,7 @@ function calculateATR(candles, period = 14) {
 }
 
 function calculateRSI(closes, period = 14) {
-  if (closes.length < period + 1) return new Array(closes.length).fill(50);
+  if (!closes?.length || closes.length < period + 1) return new Array(closes.length).fill(50);
   const gains = [], losses = [];
   for (let i = 1; i < closes.length; i++) {
     const diff = closes[i] - closes[i-1];
@@ -158,6 +174,7 @@ function calculateRSI(closes, period = 14) {
 }
 
 function calculateMACD(closes, fast=12, slow=26, signal=9) {
+  if (!closes?.length) return { macdLine: [], signalLine: [], histogram: [] };
   const emaFast  = calculateEMA(closes, fast);
   const emaSlow  = calculateEMA(closes, slow);
   const macdLine = emaFast.map((v,i)=>v - emaSlow[i]);
@@ -167,16 +184,15 @@ function calculateMACD(closes, fast=12, slow=26, signal=9) {
 }
 
 function calculateBollingerBands(closes, period=20, stdDev=2) {
+  if (!closes?.length) return { upper: [], middle: [], lower: [] };
   const middle = calculateEMA(closes, period);
   const bbUpper = [], bbLower = [];
   for (let i = 0; i < closes.length; i++) {
-    if (i < period - 1) {
-      bbUpper.push(null); bbLower.push(null); continue;
-    }
+    if (i < period - 1) { bbUpper.push(null); bbLower.push(null); continue; }
     const slice = closes.slice(i - period + 1, i + 1);
     const mean = middle[i];
     const variance = slice.reduce((sum,val)=>sum + Math.pow(val - mean,2),0) / period;
-    const deviation = Math.sqrt(variance);
+    const deviation = Math.sqrt(variance || 0);
     bbUpper.push(mean + stdDev * deviation);
     bbLower.push(mean - stdDev * deviation);
   }
@@ -184,6 +200,7 @@ function calculateBollingerBands(closes, period=20, stdDev=2) {
 }
 
 function calculateStochastic(candles, kPeriod=14, smoothK=3, smoothD=3) {
+  if (!candles?.length) return { k: [], d: [] };
   const stoch = [];
   for (let i = kPeriod - 1; i < candles.length; i++) {
     const highs = candles.slice(i - kPeriod + 1, i + 1).map(c=>c.high);
@@ -201,6 +218,132 @@ function calculateStochastic(candles, kPeriod=14, smoothK=3, smoothD=3) {
 }
 
 function calculateAvgVolume(candles, lookback = 20) {
+  if (!candles?.length) return [];
+  const avg = [];
+  for (let i = 0; i < candles.length; i++) {
+    if (i < lookback - 1) { avg.push(0); continue; }
+    const sum = candles.slice(i - lookback + 1, i + 1).reduce((s,c)=>s + c.volume, 0);
+    avg.push(sum / lookback);
+  }
+  return avg;
+}
+
+function calculateADX(candles, period = 14) {
+  if (!candles?.length || candles.length < period + 1) {
+    return { adx: new Array(candles.length).fill(25), plusDI: [], minusDI: [] };
+  }
+  const tr = [], upDM = [], downDM = [];
+  for (let i = 1; i < candles.length; i++) {
+    const c = candles[i], p = candles[i-1];
+    const trVal = Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+    tr.push(trVal);
+    const upMove = c.high - p.high;
+    const downMove = p.low - c.low;
+    upDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
+    downDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
+  }
+  const atr = calculateATR(candles, period);
+  const plusDI = [], minusDI = [];
+  let sumUp = upDM.slice(0, period).reduce((a,b)=>a+b,0);
+  let sumDown = downDM.slice(0, period).reduce((a,b)=>a+b,0);
+  plusDI.push(100 * (sumUp / period) / (atr[period-1] || 1));
+  minusDI.push(100 * (sumDown / period) / (atr[period-1] || 1));
+  for (let i = period; i < tr.length; i++) {
+    sumUp = sumUp - (sumUp / period) + upDM[i];
+    sumDown = sumDown - (sumDown / period) + downDM[i];
+    plusDI.push(100 * (sumUp / period) / (atr[i] || 1));
+    minusDI.push(100 * (sumDown / period) / (atr[i] || 1));
+  }
+  const dx = [];
+  for (let i = 0; i < plusDI.length; i++) {
+    const sumDI = plusDI[i] + minusDI[i];
+    dx.push(sumDI === 0 ? 0 : 100 * Math.abs(plusDI[i] - minusDI[i]) / sumDI);
+  }
+  const adx = calculateEMA(dx, period);
+  while (adx.length < candles.length) adx.unshift(25);
+  while (plusDI.length < candles.length) plusDI.unshift(plusDI[0] || 0);
+  while (minusDI.length < candles.length) minusDI.unshift(minusDI[0] || 0);
+  return { adx, plusDI, minusDI };
+}
+
+function calculateIchimoku(candles, tenkan=9, kijun=26, senkou=52) {
+  const tenkanSen = [], kijunSen = [], senkouSpanA = [], senkouSpanB = [], chikouSpan = [];
+  for (let i = tenkan - 1; i < candles.length; i++) {
+    const highs = candles.slice(i - tenkan + 1, i + 1).map(c => c.high);
+    const lows  = candles.slice(i - tenkan + 1, i + 1).map(c => c.low);
+    tenkanSen.push((Math.max(...highs) + Math.min(...lows)) / 2);
+  }
+  for (let i = kijun - 1; i < candles.length; i++) {
+    const highs = candles.slice(i - kijun + 1, i + 1).map(c => c.high);
+    const lows  = candles.slice(i - kijun + 1, i + 1).map(c => c.low);
+    kijunSen.push((Math.max(...highs) + Math.min(...lows)) / 2);
+  }
+  for (let i = 0; i < candles.length; i++) {
+    if (i < kijun - 1) senkouSpanA.push(null);
+    else {
+      const val = (tenkanSen[i - kijun + 1] + kijunSen[i - kijun + 1]) / 2;
+      senkouSpanA.push(val);
+    }
+  }
+  for (let i = 0; i < candles.length; i++) {
+    if (i < senkou - 1) senkouSpanB.push(null);
+    else {
+      const highs = candles.slice(i - senkou + 1, i + 1).map(c => c.high);
+      const lows  = candles.slice(i - senkou + 1, i + 1).map(c => c.low);
+      senkouSpanB.push((Math.max(...highs) + Math.min(...lows)) / 2);
+    }
+  }
+  for (let i = 0; i < candles.length; i++) {
+    if (i + kijun < candles.length) chikouSpan.push(candles[i + kijun].close);
+    else chikouSpan.push(null);
+  }
+  return { tenkanSen, kijunSen, senkouSpanA, senkouSpanB, chikouSpan };
+}
+
+function calculateParabolicSAR(candles, step = 0.02, maxStep = 0.2) {
+  if (!candles?.length || candles.length < 2) return new Array(candles.length).fill(null);
+  const sar = [];
+  let isUptrend = true;
+  let ep = candles[0].low;
+  let af = step;
+  let sarVal = candles[0].high;
+  sar.push(sarVal);
+  for (let i = 1; i < candles.length; i++) {
+    const c = candles[i];
+    let newSar;
+    if (isUptrend) {
+      newSar = sarVal + af * (ep - sarVal);
+      if (c.low < newSar) {
+        isUptrend = false;
+        sarVal = ep;
+        ep = c.low;
+        af = step;
+        newSar = sarVal;
+      } else {
+        if (c.high > ep) { ep = c.high; af = Math.min(af + step, maxStep); }
+        newSar = Math.max(newSar, candles[i-1].low, i > 1 ? candles[i-2].low : candles[i-1].low);
+      }
+    } else {
+      newSar = sarVal + af * (ep - sarVal);
+      if (c.high > newSar) {
+        isUptrend = true;
+        sarVal = ep;
+        ep = c.high;
+        af = step;
+        newSar = sarVal;
+      } else {
+        if (c.low < ep) { ep = c.low; af = Math.min(af + step, maxStep); }
+        newSar = Math.min(newSar, candles[i-1].high, i > 1 ? candles[i-2].high : candles[i-1].high);
+      }
+    }
+    sar.push(newSar);
+    sarVal = newSar;
+  }
+  return sar;
+}
+
+function calculateAvgVolume(candles, lookback = 20) {
+  if (!candles?.length) return [];
   const avg = [];
   for (let i = 0; i < candles.length; i++) {
     if (i < lookback - 1) { avg.push(0); continue; }
@@ -212,6 +355,7 @@ function calculateAvgVolume(candles, lookback = 20) {
 
 // ─── Strong S/R ───────────────────────────────────────────────────
 function findStrongSR(candles, lookback=8, minTouches=2) {
+  if (!candles?.length) return { supports: [], resistances: [] };
   const supports = [], resistances = [];
   for (let i = lookback; i < candles.length - lookback; i++) {
     const c = candles[i];
@@ -225,7 +369,6 @@ function findStrongSR(candles, lookback=8, minTouches=2) {
     if (lowCount >= minTouches) supports.push({price:c.low, strength:lowCount});
     if (highCount >= minTouches) resistances.push({price:c.high, strength:highCount});
   }
-
   const merge = arr => {
     if (!arr.length) return [];
     arr.sort((a,b)=>a.price-b.price);
@@ -238,21 +381,19 @@ function findStrongSR(candles, lookback=8, minTouches=2) {
     }
     return result;
   };
-
   return { supports: merge(supports), resistances: merge(resistances) };
 }
 
 function drawSR(sr) {
-  srLines.forEach(l => chart.removeSeries(l)); srLines = [];
+  if (!candles?.length) return;
+  srLines.forEach(l => chart?.removeSeries?.(l)); srLines = [];
   const tStart = candles[0].time - 86400*2;
   const tEnd   = candles[candles.length-1].time + 86400*2;
-
   sr.supports.forEach(s => {
     const line = chart.addLineSeries({color:'#22c55e', lineWidth:2, lineStyle:2});
     line.setData([{time:tStart,value:s.price},{time:tEnd,value:s.price}]);
     srLines.push(line);
   });
-
   sr.resistances.forEach(r => {
     const line = chart.addLineSeries({color:'#ef4444', lineWidth:2, lineStyle:2});
     line.setData([{time:tStart,value:r.price},{time:tEnd,value:r.price}]);
@@ -260,18 +401,19 @@ function drawSR(sr) {
   });
 }
 
-// ─── Signals with ALL filters (including adjustable volume) ───────
-function generateSignalsAndRisk(candles, sr, ema9, ema21, atr, rsi, macd, bb, stoch, avgVol, settings) {
+// ─── Signal Generation ────────────────────────────────────────────
+function generateSignalsAndRisk(candles, sr, ema9, ema21, atr, rsi, macd, bb, stoch, avgVol, adxData, ichimoku, psar, settings) {
+  if (!candles?.length) return [];
   const markers = [];
-
   const rsiBuy     = parseInt(settings.rsiBuy);
   const rsiSell    = parseInt(settings.rsiSell);
   const stochBuy   = parseInt(settings.stochBuy);
   const stochSell  = parseInt(settings.stochSell);
   const bbTol      = parseFloat(settings.bbTolerance);
   const volMult    = parseFloat(settings.volumeMultiplier);
+  const adxThresh  = parseInt(settings.adxThreshold);
 
-  for (let i = Math.max(60, 70); i < candles.length; i++) {
+  for (let i = Math.max(80, 100); i < candles.length; i++) {
     const c = candles[i];
     const close = c.close;
     const e9  = ema9[i]  || ema9[ema9.length-1];
@@ -280,6 +422,9 @@ function generateSignalsAndRisk(candles, sr, ema9, ema21, atr, rsi, macd, bb, st
     const currentRSI = rsi[i]  || 50;
     const currentVol = c.volume;
     const avgVolume  = avgVol[i] || 0;
+    const currentADX = adxData.adx[i]   || 25;
+    const plusDI     = adxData.plusDI[i] || 0;
+    const minusDI    = adxData.minusDI[i] || 0;
 
     const macdLine   = macd.macdLine[i]   || 0;
     const signalLine = macd.signalLine[i] || 0;
@@ -293,6 +438,13 @@ function generateSignalsAndRisk(candles, sr, ema9, ema21, atr, rsi, macd, bb, st
     const stochD = stoch.d[i] || 50;
     const prevK  = i > 0 ? stoch.k[i-1] : stochK;
     const prevD  = i > 0 ? stoch.d[i-1] : stochD;
+
+    const tenkan = ichimoku.tenkanSen[i] || close;
+    const kijun  = ichimoku.kijunSen[i]  || close;
+    const senkouA = ichimoku.senkouSpanA[i] || close;
+    const senkouB = ichimoku.senkouSpanB[i] || close;
+
+    const currentPSAR = psar[i] || close;
 
     const nearSupport    = sr.supports.some(s => Math.abs(close - s.price)/s.price < 0.008);
     const nearResistance = sr.resistances.some(r => Math.abs(close - r.price)/r.price < 0.008);
@@ -311,31 +463,45 @@ function generateSignalsAndRisk(candles, sr, ema9, ema21, atr, rsi, macd, bb, st
 
     const highVolume = currentVol >= avgVolume * volMult;
 
-    // BUY ───────────────────────────────────────────────────────────
+    const strongTrend = currentADX >= adxThresh;
+    const upTrend = plusDI > minusDI;
+    const downTrend = minusDI > plusDI;
+
+    const aboveCloud = close > Math.max(senkouA, senkouB);
+    const belowCloud = close < Math.min(senkouA, senkouB);
+    const tkBullish  = tenkan > kijun && (i > 0 && (ichimoku.tenkanSen[i-1] || 0) <= (ichimoku.kijunSen[i-1] || 0));
+    const tkBearish  = tenkan < kijun && (i > 0 && (ichimoku.tenkanSen[i-1] || 0) >= (ichimoku.kijunSen[i-1] || 0));
+
+    const abovePSAR = close > currentPSAR;
+    const belowPSAR = close < currentPSAR;
+
+    // BUY
     if (close > e9 && e9 > e21 && nearSupport && c.close > c.open &&
-        currentRSI <= rsiBuy && bullishMACD && bbBuyCondition && bullishStoch && highVolume) {
+        currentRSI <= rsiBuy && bullishMACD && bbBuyCondition && bullishStoch && highVolume &&
+        (!strongTrend || upTrend) && aboveCloud && tkBullish && abovePSAR) {
       const entry = close;
       const sl = entry - currentATR * 1.0;
       const tp = entry + currentATR * 1.8;
 
       markers.push(
         { time: c.time, position: 'belowBar', color: '#34d399', shape: 'arrowUp',   text: 'BUY',   size: 2 },
-        { time: c.time, position: 'belowBar', color: '#34d399', shape: 'circle',   text: `TP ${tp.toFixed(2)}`,   size: 1, yOffset: -65 },
-        { time: c.time, position: 'belowBar', color: '#f87171', shape: 'circle',   text: `SL ${sl.toFixed(2)}`,   size: 1, yOffset:  40 }
+        { time: c.time, position: 'belowBar', color: '#34d399', shape: 'circle',   text: `TP ${tp.toFixed(2)}`,   size: 1, yOffset: -80 },
+        { time: c.time, position: 'belowBar', color: '#f87171', shape: 'circle',   text: `SL ${sl.toFixed(2)}`,   size: 1, yOffset:  55 }
       );
     }
 
-    // SELL ──────────────────────────────────────────────────────────
+    // SELL
     if (close < e9 && e9 < e21 && nearResistance && c.close < c.open &&
-        currentRSI >= rsiSell && bearishMACD && bbSellCondition && bearishStoch && highVolume) {
+        currentRSI >= rsiSell && bearishMACD && bbSellCondition && bearishStoch && highVolume &&
+        (!strongTrend || downTrend) && belowCloud && tkBearish && belowPSAR) {
       const entry = close;
       const sl = entry + currentATR * 1.0;
       const tp = entry - currentATR * 1.8;
 
       markers.push(
         { time: c.time, position: 'aboveBar', color: '#f87171', shape: 'arrowDown', text: 'SELL',  size: 2 },
-        { time: c.time, position: 'aboveBar', color: '#f87171', shape: 'circle',    text: `TP ${tp.toFixed(2)}`,   size: 1, yOffset:  65 },
-        { time: c.time, position: 'aboveBar', color: '#34d399', shape: 'circle',    text: `SL ${sl.toFixed(2)}`,   size: 1, yOffset: -40 }
+        { time: c.time, position: 'aboveBar', color: '#f87171', shape: 'circle',    text: `TP ${tp.toFixed(2)}`,   size: 1, yOffset:  80 },
+        { time: c.time, position: 'aboveBar', color: '#34d399', shape: 'circle',    text: `SL ${sl.toFixed(2)}`,   size: 1, yOffset: -55 }
       );
     }
   }
@@ -343,33 +509,23 @@ function generateSignalsAndRisk(candles, sr, ema9, ema21, atr, rsi, macd, bb, st
   return markers;
 }
 
-async function loadChart() {
+// ─── Real-Time Logic ──────────────────────────────────────────────
+
+async function loadHistorical() {
   const symbol   = document.getElementById('symbol').value;
   const interval = document.getElementById('interval').value;
-  const rsiBuy   = document.getElementById('rsiBuy').value;
-  const rsiSell  = document.getElementById('rsiSell').value;
-  const stochBuy = document.getElementById('stochBuy').value;
-  const stochSell= document.getElementById('stochSell').value;
-  const bbTol    = document.getElementById('bbTolerance').value;
-  const volMult  = document.getElementById('volumeMultiplier').value;
-
-  const settings = {
-    rsiBuy,
-    rsiSell,
-    stochBuy,
-    stochSell,
-    bbTolerance: bbTol,
-    volumeMultiplier: volMult
-  };
-
-  status.textContent = `Loading ${symbol} ${interval} with custom filters...`;
 
   try {
+    status.textContent = `Loading historical ${symbol} ${interval}...`;
     const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=500`;
     const res = await fetch(url);
-    if (!res.ok) throw new Error('Binance error');
+    if (!res.ok) throw new Error('Binance REST error');
     const raw = await res.json();
-    const candlesData = raw.map(binanceToCandle);
+
+    if (!raw?.length) throw new Error('No historical data');
+
+    candles = raw.map(binanceToCandle);
+    lastCandleTime = candles[candles.length-1].time;
 
     if (!chart) {
       chart = LightweightCharts.createChart(document.getElementById('chart-container'), {
@@ -393,46 +549,156 @@ async function loadChart() {
       bbUpperSeries = chart.addLineSeries({ color: '#60a5fa', lineWidth: 1, lineStyle: 3 });
       bbMiddleSeries = chart.addLineSeries({ color: '#94a3b8', lineWidth: 1 });
       bbLowerSeries = chart.addLineSeries({ color: '#60a5fa', lineWidth: 1, lineStyle: 3 });
+
+      psarSeries = chart.addLineSeries({ color: '#f97316', lineWidth: 1, style: 'dots' });
     }
 
-    candleSeries.setData(candlesData);
+    candleSeries.setData(candles);
 
-    const closes = candlesData.map(c => c.close);
+    const closes = candles.map(c => c.close);
     const ema9   = calculateEMA(closes, 9);
     const ema21  = calculateEMA(closes, 21);
 
-    ema9Series.setData(candlesData.map((c,i) => ({time:c.time, value:ema9[i]})));
-    ema21Series.setData(candlesData.map((c,i) => ({time:c.time, value:ema21[i]})));
+    ema9Series.setData(candles.map((c,i) => ({time:c.time, value:ema9[i]})));
+    ema21Series.setData(candles.map((c,i) => ({time:c.time, value:ema21[i]})));
 
-    const atr   = calculateATR(candlesData, 14);
+    const atr   = calculateATR(candles, 14);
     const rsi   = calculateRSI(closes, 14);
     const macd  = calculateMACD(closes, 12, 26, 9);
     const bb    = calculateBollingerBands(closes, 20, 2);
-    const stoch = calculateStochastic(candlesData, 14, 3, 3);
-    const avgVol = calculateAvgVolume(candlesData, 20);
+    const stoch = calculateStochastic(candles, 14, 3, 3);
+    const avgVol = calculateAvgVolume(candles, 20);
+    const adxData = calculateADX(candles, 14);
+    const ichimoku = calculateIchimoku(candles, 9, 26, 52);
+    const psar = calculateParabolicSAR(candles, 0.02, 0.2);
 
-    bbUpperSeries.setData(candlesData.map((c,i) => ({time:c.time, value:bb.upper[i]})));
-    bbMiddleSeries.setData(candlesData.map((c,i) => ({time:c.time, value:bb.middle[i]})));
-    bbLowerSeries.setData(candlesData.map((c,i) => ({time:c.time, value:bb.lower[i]})));
+    bbUpperSeries.setData(candles.map((c,i) => ({time:c.time, value:bb.upper[i]})));
+    bbMiddleSeries.setData(candles.map((c,i) => ({time:c.time, value:bb.middle[i]})));
+    bbLowerSeries.setData(candles.map((c,i) => ({time:c.time, value:bb.lower[i]})));
 
-    const sr = findStrongSR(candlesData, 8, 2);
+    psarSeries.setData(candles.map((c,i) => ({time:c.time, value:psar[i]})));
+
+    const sr = findStrongSR(candles, 8, 2);
     drawSR(sr);
 
-    const markers = generateSignalsAndRisk(candlesData, sr, ema9, ema21, atr, rsi, macd, bb, stoch, avgVol, settings);
+    const markers = generateSignalsAndRisk(candles, sr, ema9, ema21, atr, rsi, macd, bb, stoch, avgVol, adxData, ichimoku, psar, {
+      rsiBuy: document.getElementById('rsiBuy').value,
+      rsiSell: document.getElementById('rsiSell').value,
+      stochBuy: document.getElementById('stochBuy').value,
+      stochSell: document.getElementById('stochSell').value,
+      bbTolerance: document.getElementById('bbTolerance').value,
+      volumeMultiplier: document.getElementById('volumeMultiplier').value,
+      adxThreshold: document.getElementById('adxThreshold').value
+    });
     candleSeries.setMarkers(markers);
-
-    let msg = `${(markers.length / 3) | 0} high-conviction setups • ${sr.supports.length} strong supports • ${sr.resistances.length} strong resistances`;
-    status.innerHTML = msg;
 
     chart.timeScale().fitContent();
 
+    status.innerHTML = `<span class="connected">Historical loaded • Connecting live stream...</span>`;
+
+    return true;
   } catch (err) {
-    status.textContent = 'Error: ' + err.message;
+    status.textContent = 'History load failed: ' + err.message;
     console.error(err);
+    return false;
   }
 }
 
-window.addEventListener('load', loadChart);
+function connectWebSocket() {
+  if (ws) ws.close();
+
+  const symbol = document.getElementById('symbol').value.toLowerCase();
+  const interval = document.getElementById('interval').value;
+  const stream = `${symbol}@kline_${interval}`;
+  const wsUrl = `wss://stream.binance.com:9443/ws/${stream}`;
+
+  ws = new WebSocket(wsUrl);
+
+  ws.onopen = () => {
+    reconnectAttempts = 0;
+    status.innerHTML = `<span class="connected">Live • Connected • ${new Date().toLocaleTimeString()}</span>`;
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.e !== 'kline') return;
+
+      const k = msg.k;
+      const candle = {
+        time: Math.floor(k.t / 1000),
+        open: parseFloat(k.o),
+        high: parseFloat(k.h),
+        low:  parseFloat(k.l),
+        close:parseFloat(k.c),
+        volume: parseFloat(k.v)
+      };
+
+      if (candle.time === lastCandleTime) {
+        candleSeries.update(candle);
+      } else if (candle.time > lastCandleTime) {
+        candleSeries.update(candle);
+        candles.push(candle);
+        lastCandleTime = candle.time;
+        // Re-run signals on new closed candle (heavy but accurate)
+        const closes = candles.map(c => c.close);
+        const ema9   = calculateEMA(closes, 9);
+        const ema21  = calculateEMA(closes, 21);
+        const atr   = calculateATR(candles, 14);
+        const rsi   = calculateRSI(closes, 14);
+        const macd  = calculateMACD(closes, 12, 26, 9);
+        const bb    = calculateBollingerBands(closes, 20, 2);
+        const stoch = calculateStochastic(candles, 14, 3, 3);
+        const avgVol = calculateAvgVolume(candles, 20);
+        const adxData = calculateADX(candles, 14);
+        const ichimoku = calculateIchimoku(candles, 9, 26, 52);
+        const psar = calculateParabolicSAR(candles, 0.02, 0.2);
+
+        const sr = findStrongSR(candles, 8, 2);
+        drawSR(sr);
+
+        const markers = generateSignalsAndRisk(candles, sr, ema9, ema21, atr, rsi, macd, bb, stoch, avgVol, adxData, ichimoku, psar, {
+          rsiBuy: document.getElementById('rsiBuy').value,
+          rsiSell: document.getElementById('rsiSell').value,
+          stochBuy: document.getElementById('stochBuy').value,
+          stochSell: document.getElementById('stochSell').value,
+          bbTolerance: document.getElementById('bbTolerance').value,
+          volumeMultiplier: document.getElementById('volumeMultiplier').value,
+          adxThreshold: document.getElementById('adxThreshold').value
+        });
+        candleSeries.setMarkers(markers);
+
+        status.innerHTML = `<span class="connected">Live • New candle closed • ${new Date().toLocaleTimeString()}</span>`;
+      }
+    } catch (e) {
+      console.error('WS message parse error', e);
+    }
+  };
+
+  ws.onclose = () => {
+    status.innerHTML = 'Disconnected — reconnecting...';
+    if (reconnectAttempts < 10) {
+      reconnectAttempts++;
+      setTimeout(connectWebSocket, 2000 * Math.pow(1.5, reconnectAttempts));
+    } else {
+      status.innerHTML = '<span class="disconnected">Max reconnect attempts. Click Refresh.</span>';
+    }
+  };
+
+  ws.onerror = (err) => {
+    console.error('WebSocket error', err);
+    status.innerHTML = 'WebSocket error — reconnecting...';
+  };
+}
+
+async function startRealtime() {
+  status.textContent = 'Loading historical data...';
+  const success = await loadHistorical();
+  if (success) {
+    connectWebSocket();
+  }
+}
+
 window.addEventListener('resize', () => {
   if (chart) chart.applyOptions({
     width: document.getElementById('chart-container').clientWidth,
