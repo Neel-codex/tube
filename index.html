@@ -3,21 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Crypto Price Action + Volume Profile • Binance High Liquidity</title>
-  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+  <title>Crypto Price Action + Volume Profile • Binance</title>
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.min.js"></script>
   <style>
     body {
       margin: 0;
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #0a0a12;
+      font-family: system-ui, sans-serif;
+      background: #0f0f1a;
       color: #e2e8f0;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
     }
     header {
-      padding: 14px 20px;
-      background: linear-gradient(135deg, #1e1e2e, #111118);
+      padding: 12px 20px;
+      background: linear-gradient(135deg, #1e293b, #111827);
       border-bottom: 1px solid #334155;
       display: flex;
       justify-content: space-between;
@@ -25,60 +25,42 @@
       flex-wrap: wrap;
       gap: 12px;
     }
-    h1 {
-      margin: 0;
-      font-size: 1.5rem;
-      color: #c7d2fe;
-    }
-    .controls {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
+    h1 { margin: 0; font-size: 1.45rem; color: #c7d2fe; }
+    .controls { display: flex; gap: 10px; flex-wrap: wrap; }
     select, button {
-      padding: 10px 16px;
+      padding: 9px 16px;
       background: #1e293b;
       color: #e2e8f0;
       border: 1px solid #475569;
-      border-radius: 8px;
-      font-size: 0.95rem;
+      border-radius: 6px;
+      font-size: 0.92rem;
       cursor: pointer;
     }
-    button {
-      background: #6366f1;
-      border-color: #6366f1;
-      font-weight: 600;
-    }
+    button { background: #6366f1; border-color: #6366f1; font-weight: 600; }
     button:hover { background: #4f46e5; }
-    #chart-container {
-      flex: 1;
-      position: relative;
-      min-height: 600px;
-    }
+    #chart { flex: 1; min-height: 500px; }
     #status {
       position: absolute;
       bottom: 16px;
       left: 16px;
       background: rgba(15,23,42,0.85);
-      padding: 12px 18px;
-      border-radius: 10px;
-      font-size: 0.95rem;
-      z-index: 20;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      z-index: 10;
       max-width: 90%;
-      backdrop-filter: blur(6px);
-      border: 1px solid #334155;
     }
-    .signal-buy { color: #34d399; font-weight: bold; }
-    .signal-sell { color: #f87171; font-weight: bold; }
+    .buy  { color: #34d399; font-weight: bold; }
+    .sell { color: #f87171; font-weight: bold; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>Price Action + Volume Profile Scanner</h1>
+  <h1>Crypto Price Action + Volume Profile</h1>
   <div class="controls">
     <select id="symbol">
-      <option value="BTCUSDT" selected>BTC/USDT (Top Liquidity)</option>
+      <option value="BTCUSDT" selected>BTC/USDT</option>
       <option value="ETHUSDT">ETH/USDT</option>
       <option value="SOLUSDT">SOL/USDT</option>
       <option value="BNBUSDT">BNB/USDT</option>
@@ -90,214 +72,158 @@
       <option value="SUIUSDT">SUI/USDT</option>
       <option value="TONUSDT">TON/USDT</option>
       <option value="AVAXUSDT">AVAX/USDT</option>
-      <option value="PEPEUSDT">PEPE/USDT</option>
     </select>
-
     <select id="interval">
       <option value="15m">15 min</option>
       <option value="30m">30 min</option>
-      <option value="1h" selected>1 hour (Recommended)</option>
+      <option value="1h" selected>1 hour</option>
       <option value="4h">4 hours</option>
       <option value="1d">Daily</option>
     </select>
-
     <button onclick="loadChart()">Load / Refresh</button>
   </div>
 </header>
 
-<div id="chart-container"></div>
-<div id="status">Ready — select coin & timeframe, then click Load</div>
+<div id="chart"></div>
+<div id="status">Ready — click Load to start</div>
 
 <script>
 let chart = null;
 let candleSeries = null;
-let volumeProfileSeries = null;
+let vpSeries = null;
 let pocLine = null;
-let vahLine = null;
-let valLine = null;
 let zoneSeries = [];
 
-const statusEl = document.getElementById('status');
+const status = document.getElementById('status');
 
-function binanceToCandle(k) {
+function binanceToCandle(kline) {
   return {
-    time: Math.floor(k[0] / 1000),
-    open: parseFloat(k[1]),
-    high: parseFloat(k[2]),
-    low: parseFloat(k[3]),
-    close: parseFloat(k[4]),
-    volume: parseFloat(k[5])
+    time:   Math.floor(kline[0] / 1000),
+    open:   parseFloat(kline[1]),
+    high:   parseFloat(kline[2]),
+    low:    parseFloat(kline[3]),
+    close:  parseFloat(kline[4]),
+    volume: parseFloat(kline[5])
   };
 }
 
-// Volume Profile (Visible Range style)
-function calculateVolumeProfile(candles, binCount = 70) {
-  if (!candles || candles.length === 0) return { data: [], poc: null, vah: null, val: null };
+// ─── Volume Profile (simple visible range approximation) ───
+function buildVolumeProfile(candles) {
+  if (candles.length < 10) return { data: [], poc: null };
 
-  let minP = Infinity, maxP = -Infinity;
-  let totalVol = 0;
+  let min = Infinity, max = -Infinity, totalVol = 0;
   candles.forEach(c => {
-    minP = Math.min(minP, c.low);
-    maxP = Math.max(maxP, c.high);
+    min = Math.min(min, c.low);
+    max = Math.max(max, c.high);
     totalVol += c.volume;
   });
 
-  if (maxP <= minP) return { data: [], poc: null, vah: null, val: null };
+  const range = max - min;
+  if (range <= 0) return { data: [], poc: null };
 
-  const binSize = (maxP - minP) / binCount;
-  const bins = new Array(binCount).fill(0);
+  const bins = new Array(60).fill(0);
+  const binSize = range / 60;
 
   candles.forEach(c => {
-    const lowBin = Math.max(0, Math.floor((c.low - minP) / binSize));
-    const highBin = Math.min(binCount - 1, Math.floor((c.high - minP) / binSize));
-    const volPerBin = c.volume / (highBin - lowBin + 1);
-    for (let b = lowBin; b <= highBin; b++) bins[b] += volPerBin;
+    const lowBin  = Math.floor((c.low  - min) / binSize);
+    const highBin = Math.floor((c.high - min) / binSize);
+    const volPer  = c.volume / (highBin - lowBin + 1 || 1);
+    for (let b = lowBin; b <= highBin; b++) {
+      if (b >= 0 && b < 60) bins[b] += volPer;
+    }
   });
 
-  let maxVol = 0, pocIdx = 0;
-  bins.forEach((v, i) => { if (v > maxVol) { maxVol = v; pocIdx = i; } });
-  const poc = minP + (pocIdx + 0.5) * binSize;
+  let maxVol = 0, pocBin = 0;
+  bins.forEach((v,i) => { if (v > maxVol) { maxVol = v; pocBin = i; }});
 
-  // Value Area ~70%
-  const target = totalVol * 0.7;
-  let accumulated = 0;
-  let vahIdx = pocIdx, valIdx = pocIdx;
-  const sorted = bins.map((v, i) => ({v, i})).sort((a,b) => b.v - a.v);
-  for (let item of sorted) {
-    accumulated += item.v;
-    if (item.i > vahIdx) vahIdx = item.i;
-    if (item.i < valIdx) valIdx = item.i;
-    if (accumulated >= target) break;
-  }
-  const vah = minP + (vahIdx + 1) * binSize;
-  const val = minP + valIdx * binSize;
+  const pocPrice = min + (pocBin + 0.5) * binSize;
 
-  const maxBin = Math.max(...bins);
-  const profileData = bins.map((vol, i) => ({
-    time: minP + (i + 0.5) * binSize,  // price as "time"
-    value: vol ? (vol / maxBin) * 100 : 0,
-    color: 'rgba(100, 181, 246, 0.7)'
+  const maxBinVol = Math.max(...bins);
+  const data = bins.map((vol, i) => ({
+    time:  min + (i + 0.5) * binSize,
+    value: maxBinVol ? (vol / maxBinVol) * 80 : 0,
+    color: 'rgba(59, 130, 246, 0.65)'
   }));
 
-  return { data: profileData, poc, vah, val };
+  return { data, poc: pocPrice };
 }
 
-// Supply/Demand Zones
-function findSupplyDemandZones(candles, lookback = 7) {
-  const demand = [], supply = [];
+// ─── Supply / Demand zones (simple swing points) ───
+function findZones(candles, lookback = 6) {
+  const supports = [], resistances = [];
   for (let i = lookback; i < candles.length - lookback; i++) {
     const c = candles[i];
-    let isLow = true, isHigh = true;
+    let isLow  = true, isHigh = true;
     for (let j = 1; j <= lookback; j++) {
-      if (candles[i-j].low <= c.low || candles[i+j].low <= c.low) isLow = false;
-      if (candles[i-j].high >= c.high || candles[i+j].high >= c.high) isHigh = false;
+      if (candles[i-j].low  <= c.low)  isLow  = false;
+      if (candles[i+j].low  <= c.low)  isLow  = false;
+      if (candles[i-j].high >= c.high) isHigh = false;
+      if (candles[i+j].high >= c.high) isHigh = false;
     }
-    if (isLow) demand.push(c.low);
-    if (isHigh) supply.push(c.high);
+    if (isLow)  supports.push(c.low);
+    if (isHigh) resistances.push(c.high);
   }
 
-  const merge = (arr, tol = 0.006) => {
-    if (arr.length === 0) return [];
-    arr.sort((a,b) => a-b);
-    const zones = [];
-    let cur = arr[0];
-    for (let i = 1; i < arr.length; i++) {
-      if ((arr[i] / cur - 1) < tol) cur = (cur + arr[i]) / 2;
-      else { zones.push(cur); cur = arr[i]; }
-    }
-    zones.push(cur);
-    return zones.map(p => ({ top: p * 1.004, bottom: p * 0.996 }));
+  const merge = arr => {
+    if (!arr.length) return [];
+    arr.sort((a,b)=>a-b);
+    const res = [arr[0]];
+    for (let i = 1; i < arr.length; i++)
+      if (Math.abs(arr[i] - res[res.length-1]) / res[res.length-1] > 0.005)
+        res.push(arr[i]);
+    return res;
   };
 
-  return { demandZones: merge(demand), supplyZones: merge(supply) };
+  return { supports: merge(supports), resistances: merge(resistances) };
 }
 
-// All Patterns with Labels
+// ─── Basic pattern markers ───
 function detectPatterns(candles) {
   const markers = [];
   for (let i = 1; i < candles.length; i++) {
     const p = candles[i-1], c = candles[i];
-    const bodyP = Math.abs(p.close - p.open), bodyC = Math.abs(c.close - c.open);
+    const body = Math.abs(c.close - c.open);
+    const range = c.high - c.low;
     const upper = c.high - Math.max(c.open, c.close);
     const lower = Math.min(c.open, c.close) - c.low;
-    const range = c.high - c.low;
 
-    // Hammer / Shooting Star
-    if (lower > 2 * bodyC && upper < 0.3 * bodyC && bodyC < range * 0.35)
-      markers.push({ time: c.time, position: 'belowBar', color: '#34d399', shape: 'arrowUp', text: 'Hammer' });
-    if (upper > 2 * bodyC && lower < 0.3 * bodyC && bodyC < range * 0.35)
-      markers.push({ time: c.time, position: 'aboveBar', color: '#f87171', shape: 'arrowDown', text: 'Shooting Star' });
+    if (lower > 2 * body && upper < body * 0.5)
+      markers.push({ time: c.time, position: 'belowBar', color: '#10b981', shape: 'arrowUp',   text: 'Hammer' });
+    if (upper > 2 * body && lower < body * 0.5)
+      markers.push({ time: c.time, position: 'aboveBar', color: '#ef4444', shape: 'arrowDown', text: 'Shooting Star' });
+    if (body < range * 0.1 && Math.max(upper, lower) < range * 0.15)
+      markers.push({ time: c.time, position: 'aboveBar', color: '#fbbf24', shape: 'circle',    text: 'Doji' });
 
-    // Doji
-    if (Math.max(upper, lower) < 0.12 * range && bodyC < range * 0.12)
-      markers.push({ time: c.time, position: 'aboveBar', color: '#fbbf24', shape: 'circle', text: 'Doji' });
-
-    // Engulfing
     if (p.close < p.open && c.close > c.open && c.open <= p.close && c.close >= p.open)
-      markers.push({ time: c.time, position: 'belowBar', color: '#10b981', shape: 'circle', text: 'Bull Engulf' });
+      markers.push({ time: c.time, position: 'belowBar', color: '#059669', shape: 'circle', text: 'Bull Engulf' });
     if (p.close > p.open && c.close < c.open && c.open >= p.close && c.close <= p.open)
-      markers.push({ time: c.time, position: 'aboveBar', color: '#ef4444', shape: 'circle', text: 'Bear Engulf' });
-
-    // Harami
-    if (p.close < p.open && c.close > c.open && c.open > p.open && c.close < p.close && bodyC < bodyP * 0.6)
-      markers.push({ time: c.time, position: 'belowBar', color: '#6ee7b7', shape: 'triangleUp', text: 'Bull Harami' });
-    if (p.close > p.open && c.close < c.open && c.open < p.open && c.close > p.close && bodyC < bodyP * 0.6)
-      markers.push({ time: c.time, position: 'aboveBar', color: '#fca5a5', shape: 'triangleDown', text: 'Bear Harami' });
-
-    // Inside Bar
-    if (c.high <= p.high && c.low >= p.low)
-      markers.push({ time: c.time, position: c.close > c.open ? 'belowBar' : 'aboveBar', color: c.close > c.open ? '#a5b4fc' : '#fda4af', shape: 'triangleUp', text: 'Inside Bar' });
+      markers.push({ time: c.time, position: 'aboveBar', color: '#dc2626', shape: 'circle', text: 'Bear Engulf' });
   }
-
-  // Morning / Evening Star
-  for (let i = 2; i < candles.length; i++) {
-    const a = candles[i-2], b = candles[i-1], c = candles[i];
-    if (a.close < a.open && Math.abs(b.close - b.open) < (a.high-a.low)*0.35 && c.close > c.open && c.close > (a.open + a.close)/2)
-      markers.push({ time: c.time, position: 'belowBar', color: '#059669', shape: 'arrowUp', text: 'Morning Star' });
-    if (a.close > a.open && Math.abs(b.close - b.open) < (a.high-a.low)*0.35 && c.close < c.open && c.close < (a.open + a.close)/2)
-      markers.push({ time: c.time, position: 'aboveBar', color: '#dc2626', shape: 'arrowDown', text: 'Evening Star' });
-  }
-
-  // 3 Soldiers / Crows
-  for (let i = 3; i < candles.length; i++) {
-    const d = candles[i-3], a = candles[i-2], b = candles[i-1], c = candles[i];
-    if (d.close > d.open && a.close > a.open && b.close > b.open && c.close > c.open &&
-        a.close > d.close && b.close > a.close && c.close > b.close)
-      markers.push({ time: c.time, position: 'belowBar', color: '#065f46', shape: 'arrowUp', text: '3 Soldiers' });
-    if (d.close < d.open && a.close < a.open && b.close < b.open && c.close < c.open &&
-        a.close < d.close && b.close < a.close && c.close < b.close)
-      markers.push({ time: c.time, position: 'aboveBar', color: '#991b1b', shape: 'arrowDown', text: '3 Crows' });
-  }
-
   return markers;
 }
 
 async function loadChart() {
-  const symbol = document.getElementById('symbol').value;
+  const symbol   = document.getElementById('symbol').value;
   const interval = document.getElementById('interval').value;
-  const limit = 500;
-  statusEl.textContent = `Loading ${symbol} ${interval}...`;
+  status.textContent = `Loading ${symbol} ${interval}...`;
 
   try {
-    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('API error');
-    const raw = await res.json();
-    if (raw.length === 0) throw new Error('No data');
+    const resp = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=400`);
+    if (!resp.ok) throw new Error('Binance fetch failed');
+    const data = await resp.json();
+    if (!data.length) throw new Error('No data returned');
 
-    const candles = raw.map(binanceToCandle);
+    const candles = data.map(binanceToCandle);
 
-    // Initialize chart once
     if (!chart) {
-      const cont = document.getElementById('chart-container');
-      chart = LightweightCharts.createChart(cont, {
-        width: cont.clientWidth,
-        height: cont.clientHeight,
-        layout: { background: { type: 'solid', color: '#0a0a12' }, textColor: '#cbd5e1' },
+      chart = LightweightCharts.createChart(document.getElementById('chart'), {
+        width: document.getElementById('chart').clientWidth,
+        height: document.getElementById('chart').clientHeight,
+        layout: { background: { type: 'solid', color: '#0f0f1a' }, textColor: '#d1d5db' },
         grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
         timeScale: { timeVisible: true, secondsVisible: false },
         rightPriceScale: { borderColor: '#334155' },
-        leftPriceScale: { visible: true, borderColor: '#334155' },
+        leftPriceScale: { visible: true, borderColor: '#334155' }
       });
 
       candleSeries = chart.addCandlestickSeries({
@@ -306,8 +232,8 @@ async function loadChart() {
         borderVisible: false
       });
 
-      volumeProfileSeries = chart.addHistogramSeries({
-        color: 'rgba(100, 181, 246, 0.6)',
+      vpSeries = chart.addHistogramSeries({
+        color: 'rgba(59,130,246,0.55)',
         priceScaleId: 'left',
         priceLineVisible: false,
         lastValueVisible: false
@@ -316,76 +242,48 @@ async function loadChart() {
 
     candleSeries.setData(candles);
 
-    // Clear previous
+    // Clear old markers & zones
     candleSeries.setMarkers([]);
-    zoneSeries.forEach(s => chart.removeSeries(s));
-    zoneSeries = [];
-    [pocLine, vahLine, valLine].forEach(l => l && chart.removeSeries(l));
-    pocLine = vahLine = valLine = null;
+    zoneSeries.forEach(s => chart.removeSeries(s)); zoneSeries = [];
+    if (pocLine) { chart.removeSeries(pocLine); pocLine = null; }
 
     // Zones
-    const { demandZones, supplyZones } = findSupplyDemandZones(candles);
-    const timeStart = candles[0].time - 86400;
-    const timeEnd = candles[candles.length-1].time + 86400;
+    const { supports, resistances } = findZones(candles);
+    const tStart = candles[0].time - 86400*2;
+    const tEnd   = candles[candles.length-1].time + 86400*2;
 
-    demandZones.forEach(z => {
-      const s = chart.addAreaSeries({
-        topColor: 'rgba(16,185,129,0.09)',
-        bottomColor: 'rgba(16,185,129,0.01)',
-        lineColor: '#10b981', lineWidth: 1
-      });
-      s.setData([
-        { time: timeStart, value: z.top },
-        { time: timeEnd, value: z.top },
-        { time: timeEnd, value: z.bottom },
-        { time: timeStart, value: z.bottom }
-      ]);
+    supports.forEach(price => {
+      const s = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, lineStyle: 2 });
+      s.setData([{time:tStart, value:price}, {time:tEnd, value:price}]);
       zoneSeries.push(s);
     });
 
-    supplyZones.forEach(z => {
-      const s = chart.addAreaSeries({
-        topColor: 'rgba(239,68,68,0.09)',
-        bottomColor: 'rgba(239,68,68,0.01)',
-        lineColor: '#ef4444', lineWidth: 1
-      });
-      s.setData([
-        { time: timeStart, value: z.top },
-        { time: timeEnd, value: z.top },
-        { time: timeEnd, value: z.bottom },
-        { time: timeStart, value: z.bottom }
-      ]);
+    resistances.forEach(price => {
+      const s = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, lineStyle: 2 });
+      s.setData([{time:tStart, value:price}, {time:tEnd, value:price}]);
       zoneSeries.push(s);
     });
 
     // Patterns
     const markers = detectPatterns(candles);
-    candleSeries.setMarkers(markers);
+    if (markers.length) candleSeries.setMarkers(markers);
 
     // Volume Profile
-    const vp = calculateVolumeProfile(candles, 70);
-    volumeProfileSeries.setData(vp.data);
+    const vp = buildVolumeProfile(candles);
+    vpSeries.setData(vp.data);
 
     if (vp.poc) {
-      pocLine = chart.addLineSeries({ color: '#ef4444', lineWidth: 2, lineStyle: 2 });
-      pocLine.setData([{ time: timeStart, value: vp.poc }, { time: timeEnd, value: vp.poc }]);
-
-      vahLine = chart.addLineSeries({ color: '#10b981', lineWidth: 1, lineStyle: 3 });
-      vahLine.setData([{ time: timeStart, value: vp.vah }, { time: timeEnd, value: vp.vah }]);
-
-      valLine = chart.addLineSeries({ color: '#10b981', lineWidth: 1, lineStyle: 3 });
-      valLine.setData([{ time: timeStart, value: vp.val }, { time: timeEnd, value: vp.val }]);
+      pocLine = chart.addLineSeries({ color: '#f97316', lineWidth: 2, lineStyle: 2 });
+      pocLine.setData([{time:tStart, value:vp.poc}, {time:tEnd, value:vp.poc}]);
     }
 
-    // Status
-    let msg = `${markers.length} patterns • ${demandZones.length} Demand • ${supplyZones.length} Supply`;
-    if (vp.poc) msg += ` • POC ≈ ${vp.poc.toFixed(2)}`;
-    statusEl.innerHTML = msg;
+    // Final status
+    status.innerHTML = `${markers.length} patterns detected • POC ≈ ${vp.poc ? vp.poc.toFixed(2) : '—'}`;
 
     chart.timeScale().fitContent();
 
   } catch (err) {
-    statusEl.textContent = 'Error: ' + err.message;
+    status.textContent = 'Error: ' + err.message;
     console.error(err);
   }
 }
@@ -393,11 +291,10 @@ async function loadChart() {
 window.addEventListener('load', loadChart);
 window.addEventListener('resize', () => {
   if (chart) chart.applyOptions({
-    width: document.getElementById('chart-container').clientWidth,
-    height: document.getElementById('chart-container').clientHeight
+    width: document.getElementById('chart').clientWidth,
+    height: document.getElementById('chart').clientHeight
   });
 });
 </script>
-
 </body>
 </html>
