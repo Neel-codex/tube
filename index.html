@@ -1,711 +1,426 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Ultimate Real-Time Price Action Scanner • All Filters + WebSocket</title>
-  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.min.js"></script>
-  <style>
-    body { margin:0; font-family:system-ui,sans-serif; background:#0f0f1a; color:#e2e8f0; min-height:100vh; display:flex; flex-direction:column; }
-    header { padding:14px 24px; background:linear-gradient(135deg,#1e293b,#111827); border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px; }
-    h1 { margin:0; font-size:1.5rem; color:#c7d2fe; }
-    .controls { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
-    select, button { padding:10px 18px; background:#1e293b; color:#e2e8f0; border:1px solid #475569; border-radius:8px; font-size:0.95rem; cursor:pointer; }
-    button { background:#6366f1; border-color:#6366f1; font-weight:600; }
-    button:hover { background:#4f46e5; }
-    label { font-size:0.9rem; color:#94a3b8; margin-right:6px; }
-    #chart-container { flex:1; position:relative; min-height:600px; }
-    #status { position:absolute; bottom:20px; left:20px; background:rgba(15,23,42,0.9); padding:12px 20px; border-radius:10px; font-size:0.95rem; z-index:20; max-width:90%; backdrop-filter:blur(6px); border:1px solid #334155; }
-    .buy  { color:#34d399; font-weight:bold; }
-    .sell { color:#f87171; font-weight:bold; }
-    .connected { color:#34d399; }
-    .disconnected { color:#f87171; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>John Doe | Portfolio</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-
-<header>
-  <h1>Ultimate Real-Time Scanner • All Filters Adjustable</h1>
-  <div class="controls">
-    <div><label>Symbol</label><select id="symbol">
-      <option value="BTCUSDT" selected>BTC/USDT</option>
-      <option value="ETHUSDT">ETH/USDT</option>
-      <option value="SOLUSDT">SOL/USDT</option>
-      <option value="BNBUSDT">BNB/USDT</option>
-      <option value="XRPUSDT">XRP/USDT</option>
-    </select></div>
-
-    <div><label>Timeframe</label><select id="interval">
-      <option value="15m">15 min</option>
-      <option value="30m">30 min</option>
-      <option value="1h" selected>1 hour</option>
-      <option value="4h">4 hours</option>
-    </select></div>
-
-    <div><label>RSI Buy ≤</label><select id="rsiBuy">
-      <option value="30">30</option>
-      <option value="35">35</option>
-      <option value="40" selected>40</option>
-    </select></div>
-
-    <div><label>RSI Sell ≥</label><select id="rsiSell">
-      <option value="60" selected>60</option>
-      <option value="65">65</option>
-      <option value="70">70</option>
-    </select></div>
-
-    <div><label>Stoch Buy ≤</label><select id="stochBuy">
-      <option value="20">20</option>
-      <option value="25">25</option>
-      <option value="30" selected>30</option>
-    </select></div>
-
-    <div><label>Stoch Sell ≥</label><select id="stochSell">
-      <option value="70" selected>70</option>
-      <option value="75">75</option>
-      <option value="80">80</option>
-    </select></div>
-
-    <div><label>BB Touch</label><select id="bbTolerance">
-      <option value="0.005">Very close (0.5%)</option>
-      <option value="0.008" selected>Normal (0.8%)</option>
-      <option value="0.012">Loose (1.2%)</option>
-    </select></div>
-
-    <div><label>Volume × Avg</label><select id="volumeMultiplier">
-      <option value="1.2">1.2×</option>
-      <option value="1.5" selected>1.5×</option>
-      <option value="2.0">2.0×</option>
-    </select></div>
-
-    <div><label>ADX ≥</label><select id="adxThreshold">
-      <option value="20">20 (any trend)</option>
-      <option value="25" selected>25 (strong)</option>
-      <option value="30">30 (very strong)</option>
-    </select></div>
-
-    <button onclick="startRealtime()">Start / Refresh</button>
-  </div>
-</header>
-
-<div id="chart-container"></div>
-<div id="status">Ready — click Start / Refresh</div>
-
-<script>
-// ────────────────────────────────────────────────────────────────
-let chart = null;
-let candleSeries = null;
-let ema9Series = null;
-let ema21Series = null;
-let bbUpperSeries = null;
-let bbMiddleSeries = null;
-let bbLowerSeries = null;
-let psarSeries = null;
-let srLines = [];
-let candles = [];
-let ws = null;
-let reconnectAttempts = 0;
-let lastCandleTime = null;
-
-const status = document.getElementById('status');
-
-// ─── Binance candle format ───────────────────────────────────────
-function binanceToCandle(k) {
-  return {
-    time: Math.floor(k[0]/1000),
-    open:  parseFloat(k[1]),
-    high:  parseFloat(k[2]),
-    low:   parseFloat(k[3]),
-    close: parseFloat(k[4]),
-    volume: parseFloat(k[5])
-  };
-}
-
-// ─── Indicator Calculations ───────────────────────────────────────
-
-function calculateEMA(prices, period) {
-  if (!prices?.length) return [];
-  const k = 2 / (period + 1);
-  let ema = prices[0];
-  const result = [ema];
-  for (let i = 1; i < prices.length; i++) {
-    ema = prices[i] * k + ema * (1 - k);
-    result.push(ema);
-  }
-  return result;
-}
-
-function calculateATR(candles, period = 14) {
-  if (!candles?.length) return [];
-  const tr = [];
-  for (let i = 1; i < candles.length; i++) {
-    const c = candles[i], p = candles[i-1];
-    tr.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
-  }
-  const atr = [];
-  let sum = tr.slice(0, period).reduce((a,b)=>a+b,0) || 0;
-  atr.push(sum / period || 0);
-  for (let i = period; i < tr.length; i++) {
-    sum = sum - (sum / period) + tr[i];
-    atr.push(sum / period);
-  }
-  while (atr.length < candles.length) atr.unshift(atr[0] || 0);
-  return atr;
-}
-
-function calculateRSI(closes, period = 14) {
-  if (!closes?.length || closes.length < period + 1) return new Array(closes.length).fill(50);
-  const gains = [], losses = [];
-  for (let i = 1; i < closes.length; i++) {
-    const diff = closes[i] - closes[i-1];
-    gains.push(diff > 0 ? diff : 0);
-    losses.push(diff < 0 ? -diff : 0);
-  }
-  let avgGain = gains.slice(0, period).reduce((a,b)=>a+b,0) / period;
-  let avgLoss = losses.slice(0, period).reduce((a,b)=>a+b,0) / period;
-  const rsi = [100 - (100 / (1 + (avgGain / (avgLoss || 1))))];
-  for (let i = period; i < gains.length; i++) {
-    avgGain = ((avgGain * (period - 1)) + gains[i]) / period;
-    avgLoss = ((avgLoss * (period - 1)) + losses[i]) / period;
-    rsi.push(100 - (100 / (1 + (avgGain / (avgLoss || 1)))));
-  }
-  while (rsi.length < closes.length) rsi.unshift(50);
-  return rsi;
-}
-
-function calculateMACD(closes, fast=12, slow=26, signal=9) {
-  if (!closes?.length) return { macdLine: [], signalLine: [], histogram: [] };
-  const emaFast  = calculateEMA(closes, fast);
-  const emaSlow  = calculateEMA(closes, slow);
-  const macdLine = emaFast.map((v,i)=>v - emaSlow[i]);
-  const signalLine = calculateEMA(macdLine, signal);
-  const histogram = macdLine.map((v,i)=>v - signalLine[i]);
-  return { macdLine, signalLine, histogram };
-}
-
-function calculateBollingerBands(closes, period=20, stdDev=2) {
-  if (!closes?.length) return { upper: [], middle: [], lower: [] };
-  const middle = calculateEMA(closes, period);
-  const bbUpper = [], bbLower = [];
-  for (let i = 0; i < closes.length; i++) {
-    if (i < period - 1) { bbUpper.push(null); bbLower.push(null); continue; }
-    const slice = closes.slice(i - period + 1, i + 1);
-    const mean = middle[i];
-    const variance = slice.reduce((sum,val)=>sum + Math.pow(val - mean,2),0) / period;
-    const deviation = Math.sqrt(variance || 0);
-    bbUpper.push(mean + stdDev * deviation);
-    bbLower.push(mean - stdDev * deviation);
-  }
-  return { upper: bbUpper, middle, lower: bbLower };
-}
-
-function calculateStochastic(candles, kPeriod=14, smoothK=3, smoothD=3) {
-  if (!candles?.length) return { k: [], d: [] };
-  const stoch = [];
-  for (let i = kPeriod - 1; i < candles.length; i++) {
-    const highs = candles.slice(i - kPeriod + 1, i + 1).map(c=>c.high);
-    const lows  = candles.slice(i - kPeriod + 1, i + 1).map(c=>c.low);
-    const highest = Math.max(...highs);
-    const lowest  = Math.min(...lows);
-    const kRaw = highest === lowest ? 50 : 100 * (candles[i].close - lowest) / (highest - lowest);
-    stoch.push(kRaw);
-  }
-  const k = calculateEMA(stoch, smoothK);
-  const d = calculateEMA(k, smoothD);
-  while (k.length < candles.length) k.unshift(50);
-  while (d.length < candles.length) d.unshift(50);
-  return { k, d };
-}
-
-function calculateAvgVolume(candles, lookback = 20) {
-  if (!candles?.length) return [];
-  const avg = [];
-  for (let i = 0; i < candles.length; i++) {
-    if (i < lookback - 1) { avg.push(0); continue; }
-    const sum = candles.slice(i - lookback + 1, i + 1).reduce((s,c)=>s + c.volume, 0);
-    avg.push(sum / lookback);
-  }
-  return avg;
-}
-
-function calculateADX(candles, period = 14) {
-  if (!candles?.length || candles.length < period + 1) {
-    return { adx: new Array(candles.length).fill(25), plusDI: [], minusDI: [] };
-  }
-  const tr = [], upDM = [], downDM = [];
-  for (let i = 1; i < candles.length; i++) {
-    const c = candles[i], p = candles[i-1];
-    const trVal = Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
-    tr.push(trVal);
-    const upMove = c.high - p.high;
-    const downMove = p.low - c.low;
-    upDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
-    downDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
-  }
-  const atr = calculateATR(candles, period);
-  const plusDI = [], minusDI = [];
-  let sumUp = upDM.slice(0, period).reduce((a,b)=>a+b,0);
-  let sumDown = downDM.slice(0, period).reduce((a,b)=>a+b,0);
-  plusDI.push(100 * (sumUp / period) / (atr[period-1] || 1));
-  minusDI.push(100 * (sumDown / period) / (atr[period-1] || 1));
-  for (let i = period; i < tr.length; i++) {
-    sumUp = sumUp - (sumUp / period) + upDM[i];
-    sumDown = sumDown - (sumDown / period) + downDM[i];
-    plusDI.push(100 * (sumUp / period) / (atr[i] || 1));
-    minusDI.push(100 * (sumDown / period) / (atr[i] || 1));
-  }
-  const dx = [];
-  for (let i = 0; i < plusDI.length; i++) {
-    const sumDI = plusDI[i] + minusDI[i];
-    dx.push(sumDI === 0 ? 0 : 100 * Math.abs(plusDI[i] - minusDI[i]) / sumDI);
-  }
-  const adx = calculateEMA(dx, period);
-  while (adx.length < candles.length) adx.unshift(25);
-  while (plusDI.length < candles.length) plusDI.unshift(plusDI[0] || 0);
-  while (minusDI.length < candles.length) minusDI.unshift(minusDI[0] || 0);
-  return { adx, plusDI, minusDI };
-}
-
-function calculateIchimoku(candles, tenkan=9, kijun=26, senkou=52) {
-  const tenkanSen = [], kijunSen = [], senkouSpanA = [], senkouSpanB = [], chikouSpan = [];
-  for (let i = tenkan - 1; i < candles.length; i++) {
-    const highs = candles.slice(i - tenkan + 1, i + 1).map(c => c.high);
-    const lows  = candles.slice(i - tenkan + 1, i + 1).map(c => c.low);
-    tenkanSen.push((Math.max(...highs) + Math.min(...lows)) / 2);
-  }
-  for (let i = kijun - 1; i < candles.length; i++) {
-    const highs = candles.slice(i - kijun + 1, i + 1).map(c => c.high);
-    const lows  = candles.slice(i - kijun + 1, i + 1).map(c => c.low);
-    kijunSen.push((Math.max(...highs) + Math.min(...lows)) / 2);
-  }
-  for (let i = 0; i < candles.length; i++) {
-    if (i < kijun - 1) senkouSpanA.push(null);
-    else {
-      const val = (tenkanSen[i - kijun + 1] + kijunSen[i - kijun + 1]) / 2;
-      senkouSpanA.push(val);
-    }
-  }
-  for (let i = 0; i < candles.length; i++) {
-    if (i < senkou - 1) senkouSpanB.push(null);
-    else {
-      const highs = candles.slice(i - senkou + 1, i + 1).map(c => c.high);
-      const lows  = candles.slice(i - senkou + 1, i + 1).map(c => c.low);
-      senkouSpanB.push((Math.max(...highs) + Math.min(...lows)) / 2);
-    }
-  }
-  for (let i = 0; i < candles.length; i++) {
-    if (i + kijun < candles.length) chikouSpan.push(candles[i + kijun].close);
-    else chikouSpan.push(null);
-  }
-  return { tenkanSen, kijunSen, senkouSpanA, senkouSpanB, chikouSpan };
-}
-
-function calculateParabolicSAR(candles, step = 0.02, maxStep = 0.2) {
-  if (!candles?.length || candles.length < 2) return new Array(candles.length).fill(null);
-  const sar = [];
-  let isUptrend = true;
-  let ep = candles[0].low;
-  let af = step;
-  let sarVal = candles[0].high;
-  sar.push(sarVal);
-  for (let i = 1; i < candles.length; i++) {
-    const c = candles[i];
-    let newSar;
-    if (isUptrend) {
-      newSar = sarVal + af * (ep - sarVal);
-      if (c.low < newSar) {
-        isUptrend = false;
-        sarVal = ep;
-        ep = c.low;
-        af = step;
-        newSar = sarVal;
-      } else {
-        if (c.high > ep) { ep = c.high; af = Math.min(af + step, maxStep); }
-        newSar = Math.max(newSar, candles[i-1].low, i > 1 ? candles[i-2].low : candles[i-1].low);
-      }
-    } else {
-      newSar = sarVal + af * (ep - sarVal);
-      if (c.high > newSar) {
-        isUptrend = true;
-        sarVal = ep;
-        ep = c.high;
-        af = step;
-        newSar = sarVal;
-      } else {
-        if (c.low < ep) { ep = c.low; af = Math.min(af + step, maxStep); }
-        newSar = Math.min(newSar, candles[i-1].high, i > 1 ? candles[i-2].high : candles[i-1].high);
-      }
-    }
-    sar.push(newSar);
-    sarVal = newSar;
-  }
-  return sar;
-}
-
-function calculateAvgVolume(candles, lookback = 20) {
-  if (!candles?.length) return [];
-  const avg = [];
-  for (let i = 0; i < candles.length; i++) {
-    if (i < lookback - 1) { avg.push(0); continue; }
-    const sum = candles.slice(i - lookback + 1, i + 1).reduce((s,c)=>s + c.volume, 0);
-    avg.push(sum / lookback);
-  }
-  return avg;
-}
-
-// ─── Strong S/R ───────────────────────────────────────────────────
-function findStrongSR(candles, lookback=8, minTouches=2) {
-  if (!candles?.length) return { supports: [], resistances: [] };
-  const supports = [], resistances = [];
-  for (let i = lookback; i < candles.length - lookback; i++) {
-    const c = candles[i];
-    let lowCount=0, highCount=0;
-    for (let j=1; j<=lookback; j++) {
-      if (Math.abs(candles[i-j].low  - c.low)  / c.low  < 0.004) lowCount++;
-      if (Math.abs(candles[i+j].low  - c.low)  / c.low  < 0.004) lowCount++;
-      if (Math.abs(candles[i-j].high - c.high) / c.high < 0.004) highCount++;
-      if (Math.abs(candles[i+j].high - c.high) / c.high < 0.004) highCount++;
-    }
-    if (lowCount >= minTouches) supports.push({price:c.low, strength:lowCount});
-    if (highCount >= minTouches) resistances.push({price:c.high, strength:highCount});
-  }
-  const merge = arr => {
-    if (!arr.length) return [];
-    arr.sort((a,b)=>a.price-b.price);
-    const result = [arr[0]];
-    for (let i=1; i<arr.length; i++) {
-      const prev = result[result.length-1];
-      if (Math.abs(arr[i].price - prev.price)/prev.price < 0.006) {
-        if (arr[i].strength > prev.strength) result[result.length-1] = arr[i];
-      } else result.push(arr[i]);
-    }
-    return result;
-  };
-  return { supports: merge(supports), resistances: merge(resistances) };
-}
-
-function drawSR(sr) {
-  if (!candles?.length) return;
-  srLines.forEach(l => chart?.removeSeries?.(l)); srLines = [];
-  const tStart = candles[0].time - 86400*2;
-  const tEnd   = candles[candles.length-1].time + 86400*2;
-  sr.supports.forEach(s => {
-    const line = chart.addLineSeries({color:'#22c55e', lineWidth:2, lineStyle:2});
-    line.setData([{time:tStart,value:s.price},{time:tEnd,value:s.price}]);
-    srLines.push(line);
-  });
-  sr.resistances.forEach(r => {
-    const line = chart.addLineSeries({color:'#ef4444', lineWidth:2, lineStyle:2});
-    line.setData([{time:tStart,value:r.price},{time:tEnd,value:r.price}]);
-    srLines.push(line);
-  });
-}
-
-// ─── Signal Generation ────────────────────────────────────────────
-function generateSignalsAndRisk(candles, sr, ema9, ema21, atr, rsi, macd, bb, stoch, avgVol, adxData, ichimoku, psar, settings) {
-  if (!candles?.length) return [];
-  const markers = [];
-  const rsiBuy     = parseInt(settings.rsiBuy);
-  const rsiSell    = parseInt(settings.rsiSell);
-  const stochBuy   = parseInt(settings.stochBuy);
-  const stochSell  = parseInt(settings.stochSell);
-  const bbTol      = parseFloat(settings.bbTolerance);
-  const volMult    = parseFloat(settings.volumeMultiplier);
-  const adxThresh  = parseInt(settings.adxThreshold);
-
-  for (let i = Math.max(80, 100); i < candles.length; i++) {
-    const c = candles[i];
-    const close = c.close;
-    const e9  = ema9[i]  || ema9[ema9.length-1];
-    const e21 = ema21[i] || ema21[ema21.length-1];
-    const currentATR = atr[i]  || atr[atr.length-1];
-    const currentRSI = rsi[i]  || 50;
-    const currentVol = c.volume;
-    const avgVolume  = avgVol[i] || 0;
-    const currentADX = adxData.adx[i]   || 25;
-    const plusDI     = adxData.plusDI[i] || 0;
-    const minusDI    = adxData.minusDI[i] || 0;
-
-    const macdLine   = macd.macdLine[i]   || 0;
-    const signalLine = macd.signalLine[i] || 0;
-    const hist       = macd.histogram[i]  || 0;
-    const prevHist   = i > 0 ? macd.histogram[i-1] : hist;
-
-    const bbUpper = bb.upper[i] || close;
-    const bbLower = bb.lower[i] || close;
-
-    const stochK = stoch.k[i] || 50;
-    const stochD = stoch.d[i] || 50;
-    const prevK  = i > 0 ? stoch.k[i-1] : stochK;
-    const prevD  = i > 0 ? stoch.d[i-1] : stochD;
-
-    const tenkan = ichimoku.tenkanSen[i] || close;
-    const kijun  = ichimoku.kijunSen[i]  || close;
-    const senkouA = ichimoku.senkouSpanA[i] || close;
-    const senkouB = ichimoku.senkouSpanB[i] || close;
-
-    const currentPSAR = psar[i] || close;
-
-    const nearSupport    = sr.supports.some(s => Math.abs(close - s.price)/s.price < 0.008);
-    const nearResistance = sr.resistances.some(r => Math.abs(close - r.price)/r.price < 0.008);
-
-    const bullishMACD = (macdLine > signalLine && (macdLine - signalLine) > ((macdLine[i-1]||0) - (signalLine[i-1]||0))) ||
-                        (hist > 0 && hist > prevHist);
-
-    const bearishMACD = (macdLine < signalLine && (macdLine - signalLine) < ((macdLine[i-1]||0) - (signalLine[i-1]||0))) ||
-                        (hist < 0 && hist < prevHist);
-
-    const bbBuyCondition  = close <= bbLower * (1 + bbTol);
-    const bbSellCondition = close >= bbUpper * (1 - bbTol);
-
-    const bullishStoch = (stochK > stochD && prevK <= prevD && stochK <= stochBuy);
-    const bearishStoch = (stochK < stochD && prevK >= prevD && stochK >= stochSell);
-
-    const highVolume = currentVol >= avgVolume * volMult;
-
-    const strongTrend = currentADX >= adxThresh;
-    const upTrend = plusDI > minusDI;
-    const downTrend = minusDI > plusDI;
-
-    const aboveCloud = close > Math.max(senkouA, senkouB);
-    const belowCloud = close < Math.min(senkouA, senkouB);
-    const tkBullish  = tenkan > kijun && (i > 0 && (ichimoku.tenkanSen[i-1] || 0) <= (ichimoku.kijunSen[i-1] || 0));
-    const tkBearish  = tenkan < kijun && (i > 0 && (ichimoku.tenkanSen[i-1] || 0) >= (ichimoku.kijunSen[i-1] || 0));
-
-    const abovePSAR = close > currentPSAR;
-    const belowPSAR = close < currentPSAR;
-
-    // BUY
-    if (close > e9 && e9 > e21 && nearSupport && c.close > c.open &&
-        currentRSI <= rsiBuy && bullishMACD && bbBuyCondition && bullishStoch && highVolume &&
-        (!strongTrend || upTrend) && aboveCloud && tkBullish && abovePSAR) {
-      const entry = close;
-      const sl = entry - currentATR * 1.0;
-      const tp = entry + currentATR * 1.8;
-
-      markers.push(
-        { time: c.time, position: 'belowBar', color: '#34d399', shape: 'arrowUp',   text: 'BUY',   size: 2 },
-        { time: c.time, position: 'belowBar', color: '#34d399', shape: 'circle',   text: `TP ${tp.toFixed(2)}`,   size: 1, yOffset: -80 },
-        { time: c.time, position: 'belowBar', color: '#f87171', shape: 'circle',   text: `SL ${sl.toFixed(2)}`,   size: 1, yOffset:  55 }
-      );
-    }
-
-    // SELL
-    if (close < e9 && e9 < e21 && nearResistance && c.close < c.open &&
-        currentRSI >= rsiSell && bearishMACD && bbSellCondition && bearishStoch && highVolume &&
-        (!strongTrend || downTrend) && belowCloud && tkBearish && belowPSAR) {
-      const entry = close;
-      const sl = entry + currentATR * 1.0;
-      const tp = entry - currentATR * 1.8;
-
-      markers.push(
-        { time: c.time, position: 'aboveBar', color: '#f87171', shape: 'arrowDown', text: 'SELL',  size: 2 },
-        { time: c.time, position: 'aboveBar', color: '#f87171', shape: 'circle',    text: `TP ${tp.toFixed(2)}`,   size: 1, yOffset:  80 },
-        { time: c.time, position: 'aboveBar', color: '#34d399', shape: 'circle',    text: `SL ${sl.toFixed(2)}`,   size: 1, yOffset: -55 }
-      );
-    }
-  }
-
-  return markers;
-}
-
-// ─── Real-Time Logic ──────────────────────────────────────────────
-
-async function loadHistorical() {
-  const symbol   = document.getElementById('symbol').value;
-  const interval = document.getElementById('interval').value;
-
-  try {
-    status.textContent = `Loading historical ${symbol} ${interval}...`;
-    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=500`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Binance REST error');
-    const raw = await res.json();
-
-    if (!raw?.length) throw new Error('No historical data');
-
-    candles = raw.map(binanceToCandle);
-    lastCandleTime = candles[candles.length-1].time;
-
-    if (!chart) {
-      chart = LightweightCharts.createChart(document.getElementById('chart-container'), {
-        width: document.getElementById('chart-container').clientWidth,
-        height: document.getElementById('chart-container').clientHeight,
-        layout: { background: { type: 'solid', color: '#0f0f1a' }, textColor: '#cbd5e1' },
-        grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
-        timeScale: { timeVisible: true, secondsVisible: false },
-        rightPriceScale: { borderColor: '#334155' }
-      });
-
-      candleSeries = chart.addCandlestickSeries({
-        upColor: '#10b981', downColor: '#ef4444',
-        wickUpColor: '#10b981', wickDownColor: '#ef4444',
-        borderVisible: false
-      });
-
-      ema9Series  = chart.addLineSeries({ color: '#fbbf24', lineWidth: 2 });
-      ema21Series = chart.addLineSeries({ color: '#a78bfa', lineWidth: 2 });
-
-      bbUpperSeries = chart.addLineSeries({ color: '#60a5fa', lineWidth: 1, lineStyle: 3 });
-      bbMiddleSeries = chart.addLineSeries({ color: '#94a3b8', lineWidth: 1 });
-      bbLowerSeries = chart.addLineSeries({ color: '#60a5fa', lineWidth: 1, lineStyle: 3 });
-
-      psarSeries = chart.addLineSeries({ color: '#f97316', lineWidth: 1, style: 'dots' });
-    }
-
-    candleSeries.setData(candles);
-
-    const closes = candles.map(c => c.close);
-    const ema9   = calculateEMA(closes, 9);
-    const ema21  = calculateEMA(closes, 21);
-
-    ema9Series.setData(candles.map((c,i) => ({time:c.time, value:ema9[i]})));
-    ema21Series.setData(candles.map((c,i) => ({time:c.time, value:ema21[i]})));
-
-    const atr   = calculateATR(candles, 14);
-    const rsi   = calculateRSI(closes, 14);
-    const macd  = calculateMACD(closes, 12, 26, 9);
-    const bb    = calculateBollingerBands(closes, 20, 2);
-    const stoch = calculateStochastic(candles, 14, 3, 3);
-    const avgVol = calculateAvgVolume(candles, 20);
-    const adxData = calculateADX(candles, 14);
-    const ichimoku = calculateIchimoku(candles, 9, 26, 52);
-    const psar = calculateParabolicSAR(candles, 0.02, 0.2);
-
-    bbUpperSeries.setData(candles.map((c,i) => ({time:c.time, value:bb.upper[i]})));
-    bbMiddleSeries.setData(candles.map((c,i) => ({time:c.time, value:bb.middle[i]})));
-    bbLowerSeries.setData(candles.map((c,i) => ({time:c.time, value:bb.lower[i]})));
-
-    psarSeries.setData(candles.map((c,i) => ({time:c.time, value:psar[i]})));
-
-    const sr = findStrongSR(candles, 8, 2);
-    drawSR(sr);
-
-    const markers = generateSignalsAndRisk(candles, sr, ema9, ema21, atr, rsi, macd, bb, stoch, avgVol, adxData, ichimoku, psar, {
-      rsiBuy: document.getElementById('rsiBuy').value,
-      rsiSell: document.getElementById('rsiSell').value,
-      stochBuy: document.getElementById('stochBuy').value,
-      stochSell: document.getElementById('stochSell').value,
-      bbTolerance: document.getElementById('bbTolerance').value,
-      volumeMultiplier: document.getElementById('volumeMultiplier').value,
-      adxThreshold: document.getElementById('adxThreshold').value
-    });
-    candleSeries.setMarkers(markers);
-
-    chart.timeScale().fitContent();
-
-    status.innerHTML = `<span class="connected">Historical loaded • Connecting live stream...</span>`;
-
-    return true;
-  } catch (err) {
-    status.textContent = 'History load failed: ' + err.message;
-    console.error(err);
-    return false;
-  }
-}
-
-function connectWebSocket() {
-  if (ws) ws.close();
-
-  const symbol = document.getElementById('symbol').value.toLowerCase();
-  const interval = document.getElementById('interval').value;
-  const stream = `${symbol}@kline_${interval}`;
-  const wsUrl = `wss://stream.binance.com:9443/ws/${stream}`;
-
-  ws = new WebSocket(wsUrl);
-
-  ws.onopen = () => {
-    reconnectAttempts = 0;
-    status.innerHTML = `<span class="connected">Live • Connected • ${new Date().toLocaleTimeString()}</span>`;
-  };
-
-  ws.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      if (msg.e !== 'kline') return;
-
-      const k = msg.k;
-      const candle = {
-        time: Math.floor(k.t / 1000),
-        open: parseFloat(k.o),
-        high: parseFloat(k.h),
-        low:  parseFloat(k.l),
-        close:parseFloat(k.c),
-        volume: parseFloat(k.v)
-      };
-
-      if (candle.time === lastCandleTime) {
-        candleSeries.update(candle);
-      } else if (candle.time > lastCandleTime) {
-        candleSeries.update(candle);
-        candles.push(candle);
-        lastCandleTime = candle.time;
-        // Re-run signals on new closed candle (heavy but accurate)
-        const closes = candles.map(c => c.close);
-        const ema9   = calculateEMA(closes, 9);
-        const ema21  = calculateEMA(closes, 21);
-        const atr   = calculateATR(candles, 14);
-        const rsi   = calculateRSI(closes, 14);
-        const macd  = calculateMACD(closes, 12, 26, 9);
-        const bb    = calculateBollingerBands(closes, 20, 2);
-        const stoch = calculateStochastic(candles, 14, 3, 3);
-        const avgVol = calculateAvgVolume(candles, 20);
-        const adxData = calculateADX(candles, 14);
-        const ichimoku = calculateIchimoku(candles, 9, 26, 52);
-        const psar = calculateParabolicSAR(candles, 0.02, 0.2);
-
-        const sr = findStrongSR(candles, 8, 2);
-        drawSR(sr);
-
-        const markers = generateSignalsAndRisk(candles, sr, ema9, ema21, atr, rsi, macd, bb, stoch, avgVol, adxData, ichimoku, psar, {
-          rsiBuy: document.getElementById('rsiBuy').value,
-          rsiSell: document.getElementById('rsiSell').value,
-          stochBuy: document.getElementById('stochBuy').value,
-          stochSell: document.getElementById('stochSell').value,
-          bbTolerance: document.getElementById('bbTolerance').value,
-          volumeMultiplier: document.getElementById('volumeMultiplier').value,
-          adxThreshold: document.getElementById('adxThreshold').value
-        });
-        candleSeries.setMarkers(markers);
-
-        status.innerHTML = `<span class="connected">Live • New candle closed • ${new Date().toLocaleTimeString()}</span>`;
-      }
-    } catch (e) {
-      console.error('WS message parse error', e);
-    }
-  };
-
-  ws.onclose = () => {
-    status.innerHTML = 'Disconnected — reconnecting...';
-    if (reconnectAttempts < 10) {
-      reconnectAttempts++;
-      setTimeout(connectWebSocket, 2000 * Math.pow(1.5, reconnectAttempts));
-    } else {
-      status.innerHTML = '<span class="disconnected">Max reconnect attempts. Click Refresh.</span>';
-    }
-  };
-
-  ws.onerror = (err) => {
-    console.error('WebSocket error', err);
-    status.innerHTML = 'WebSocket error — reconnecting...';
-  };
-}
-
-async function startRealtime() {
-  status.textContent = 'Loading historical data...';
-  const success = await loadHistorical();
-  if (success) {
-    connectWebSocket();
-  }
-}
-
-window.addEventListener('resize', () => {
-  if (chart) chart.applyOptions({
-    width: document.getElementById('chart-container').clientWidth,
-    height: document.getElementById('chart-container').clientHeight
-  });
-});
-</script>
-
+    <!-- Navigation -->
+    <nav class="navbar" id="navbar">
+        <div class="nav-container">
+            <a href="#home" class="nav-logo">KB<span class="dot">.</span></a>
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="#home" class="nav-link active">Home</a></li>
+                <li><a href="#about" class="nav-link">About</a></li>
+                <li><a href="#skills" class="nav-link">Skills</a></li>
+                <li><a href="#projects" class="nav-link">Projects</a></li>
+                <li><a href="#contact" class="nav-link">Contact</a></li>
+            </ul>
+            <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+                <span class="sun">&#9728;</span>
+                <span class="moon">&#9790;</span>
+            </button>
+            <div class="hamburger" id="hamburger" aria-label="Menu">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section id="home" class="hero">
+        <div class="hero-bg">
+            <div class="blob blob-1"></div>
+            <div class="blob blob-2"></div>
+            <div class="blob blob-3"></div>
+        </div>
+        <div class="container hero-container">
+            <div class="hero-content">
+                <p class="hero-greeting">Hello, I'm</p>
+                <h1 class="hero-name">Neel Borah</h1>
+                <h2 class="hero-title">
+                    I'm a <span class="typed" id="typed"></span><span class="cursor">|</span>
+                </h2>
+                <p class="hero-description">
+                    A passionate creator who turns ideas into elegant digital experiences.
+                    I build modern web applications with clean code and beautiful design.
+                </p>
+                <div class="hero-buttons">
+                    <a href="#projects" class="btn btn-primary">View My Work</a>
+                    <a href="#contact" class="btn btn-secondary">Get In Touch</a>
+                </div>
+                <div class="hero-socials">
+                    <a href="#" aria-label="GitHub" class="social-link">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                    </a>
+                    <a href="#" aria-label="LinkedIn" class="social-link">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
+                    </a>
+                    <a href="#" aria-label="Twitter" class="social-link">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                    </a>
+                    <a href="#" aria-label="Email" class="social-link">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3v18h24v-18h-24zm21.518 2l-9.518 7.713-9.518-7.713h19.036zm-19.518 14v-11.817l10 8.104 10-8.104v11.817h-20z"/></svg>
+                    </a>
+                </div>
+            </div>
+            <div class="hero-image">
+                <div class="image-wrapper">
+                    <div class="image-glow"></div>
+                    <div class="profile-circle">
+                        <div class="profile-initials">JD</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <a href="#about" class="scroll-down">
+            <span></span>
+        </a>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="section about">
+        <div class="container">
+            <div class="section-header reveal">
+                <p class="section-subtitle">Get To Know Me</p>
+                <h2 class="section-title">About Me</h2>
+            </div>
+            <div class="about-content">
+                <div class="about-image reveal">
+                    <div class="about-image-inner">
+                        <div class="about-shape"></div>
+                    </div>
+                </div>
+                <div class="about-text reveal">
+                    <h3>A passionate developer based in San Francisco</h3>
+                    <p>
+                        I'm a full-stack developer with over 5 years of experience building
+                        web applications. I love creating intuitive, dynamic user experiences
+                        and crafting clean, efficient code that scales.
+                    </p>
+                    <p>
+                        When I'm not coding, you can find me exploring new coffee shops,
+                        hiking, or contributing to open-source projects. I believe in
+                        continuous learning and pushing the boundaries of what's possible on the web.
+                    </p>
+                    <div class="about-stats">
+                        <div class="stat">
+                            <h4 data-count="50">0</h4>
+                            <p>Projects Done</p>
+                        </div>
+                        <div class="stat">
+                            <h4 data-count="5">0</h4>
+                            <p>Years Experience</p>
+                        </div>
+                        <div class="stat">
+                            <h4 data-count="30">0</h4>
+                            <p>Happy Clients</p>
+                        </div>
+                    </div>
+                    <a href="#" class="btn btn-primary">Download CV</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Skills Section -->
+    <section id="skills" class="section skills">
+        <div class="container">
+            <div class="section-header reveal">
+                <p class="section-subtitle">What I Do</p>
+                <h2 class="section-title">My Skills</h2>
+            </div>
+            <div class="skills-grid">
+                <div class="skill-card reveal">
+                    <div class="skill-icon">&lt;/&gt;</div>
+                    <h3>Frontend Development</h3>
+                    <p>Building responsive, accessible interfaces with modern frameworks.</p>
+                    <div class="skill-tags">
+                        <span>React</span>
+                        <span>Vue</span>
+                        <span>TypeScript</span>
+                        <span>CSS</span>
+                    </div>
+                </div>
+                <div class="skill-card reveal">
+                    <div class="skill-icon">{}</div>
+                    <h3>Backend Development</h3>
+                    <p>Designing robust APIs and scalable server architectures.</p>
+                    <div class="skill-tags">
+                        <span>Node.js</span>
+                        <span>Python</span>
+                        <span>PostgreSQL</span>
+                        <span>GraphQL</span>
+                    </div>
+                </div>
+                <div class="skill-card reveal">
+                    <div class="skill-icon">&#9881;</div>
+                    <h3>DevOps & Cloud</h3>
+                    <p>Deploying and maintaining production-grade infrastructure.</p>
+                    <div class="skill-tags">
+                        <span>AWS</span>
+                        <span>Docker</span>
+                        <span>CI/CD</span>
+                        <span>Linux</span>
+                    </div>
+                </div>
+                <div class="skill-card reveal">
+                    <div class="skill-icon">&#9998;</div>
+                    <h3>UI/UX Design</h3>
+                    <p>Crafting beautiful, user-centered design solutions.</p>
+                    <div class="skill-tags">
+                        <span>Figma</span>
+                        <span>Prototyping</span>
+                        <span>Wireframing</span>
+                        <span>Research</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="skill-bars reveal">
+                <h3 class="skill-bars-title">Technical Proficiency</h3>
+                <div class="skill-bar">
+                    <div class="skill-bar-info">
+                        <span>JavaScript / TypeScript</span>
+                        <span>95%</span>
+                    </div>
+                    <div class="skill-bar-track">
+                        <div class="skill-bar-fill" data-width="95"></div>
+                    </div>
+                </div>
+                <div class="skill-bar">
+                    <div class="skill-bar-info">
+                        <span>React / Next.js</span>
+                        <span>90%</span>
+                    </div>
+                    <div class="skill-bar-track">
+                        <div class="skill-bar-fill" data-width="90"></div>
+                    </div>
+                </div>
+                <div class="skill-bar">
+                    <div class="skill-bar-info">
+                        <span>Node.js / Express</span>
+                        <span>85%</span>
+                    </div>
+                    <div class="skill-bar-track">
+                        <div class="skill-bar-fill" data-width="85"></div>
+                    </div>
+                </div>
+                <div class="skill-bar">
+                    <div class="skill-bar-info">
+                        <span>Cloud & DevOps</span>
+                        <span>80%</span>
+                    </div>
+                    <div class="skill-bar-track">
+                        <div class="skill-bar-fill" data-width="80"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Projects Section -->
+    <section id="projects" class="section projects">
+        <div class="container">
+            <div class="section-header reveal">
+                <p class="section-subtitle">My Work</p>
+                <h2 class="section-title">Featured Projects</h2>
+            </div>
+            <div class="project-filters reveal">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="web">Web</button>
+                <button class="filter-btn" data-filter="mobile">Mobile</button>
+                <button class="filter-btn" data-filter="design">Design</button>
+            </div>
+            <div class="projects-grid">
+                <article class="project-card reveal" data-category="web">
+                    <div class="project-image" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+                        <div class="project-overlay">
+                            <a href="#" class="project-link" aria-label="View live">&#8599;</a>
+                            <a href="#" class="project-link" aria-label="View code">&lt;/&gt;</a>
+                        </div>
+                    </div>
+                    <div class="project-info">
+                        <span class="project-category">Web App</span>
+                        <h3>E-Commerce Platform</h3>
+                        <p>A full-featured online store with cart, checkout, and admin dashboard.</p>
+                        <div class="project-tech">
+                            <span>React</span>
+                            <span>Node.js</span>
+                            <span>Stripe</span>
+                        </div>
+                    </div>
+                </article>
+                <article class="project-card reveal" data-category="mobile">
+                    <div class="project-image" style="background: linear-gradient(135deg, #f093fb, #f5576c);">
+                        <div class="project-overlay">
+                            <a href="#" class="project-link" aria-label="View live">&#8599;</a>
+                            <a href="#" class="project-link" aria-label="View code">&lt;/&gt;</a>
+                        </div>
+                    </div>
+                    <div class="project-info">
+                        <span class="project-category">Mobile App</span>
+                        <h3>Fitness Tracker</h3>
+                        <p>Track workouts, nutrition, and progress with beautiful visualizations.</p>
+                        <div class="project-tech">
+                            <span>React Native</span>
+                            <span>Firebase</span>
+                            <span>Charts</span>
+                        </div>
+                    </div>
+                </article>
+                <article class="project-card reveal" data-category="web">
+                    <div class="project-image" style="background: linear-gradient(135deg, #4facfe, #00f2fe);">
+                        <div class="project-overlay">
+                            <a href="#" class="project-link" aria-label="View live">&#8599;</a>
+                            <a href="#" class="project-link" aria-label="View code">&lt;/&gt;</a>
+                        </div>
+                    </div>
+                    <div class="project-info">
+                        <span class="project-category">SaaS</span>
+                        <h3>Task Management</h3>
+                        <p>Collaborative project management with real-time updates and team chat.</p>
+                        <div class="project-tech">
+                            <span>Vue.js</span>
+                            <span>WebSocket</span>
+                            <span>MongoDB</span>
+                        </div>
+                    </div>
+                </article>
+                <article class="project-card reveal" data-category="design">
+                    <div class="project-image" style="background: linear-gradient(135deg, #fa709a, #fee140);">
+                        <div class="project-overlay">
+                            <a href="#" class="project-link" aria-label="View live">&#8599;</a>
+                            <a href="#" class="project-link" aria-label="View code">&lt;/&gt;</a>
+                        </div>
+                    </div>
+                    <div class="project-info">
+                        <span class="project-category">Design</span>
+                        <h3>Banking Dashboard</h3>
+                        <p>Modern banking interface designed with focus on clarity and usability.</p>
+                        <div class="project-tech">
+                            <span>Figma</span>
+                            <span>UI/UX</span>
+                            <span>Prototype</span>
+                        </div>
+                    </div>
+                </article>
+                <article class="project-card reveal" data-category="web">
+                    <div class="project-image" style="background: linear-gradient(135deg, #30cfd0, #330867);">
+                        <div class="project-overlay">
+                            <a href="#" class="project-link" aria-label="View live">&#8599;</a>
+                            <a href="#" class="project-link" aria-label="View code">&lt;/&gt;</a>
+                        </div>
+                    </div>
+                    <div class="project-info">
+                        <span class="project-category">AI</span>
+                        <h3>AI Chat Assistant</h3>
+                        <p>Intelligent chatbot with natural language processing and context awareness.</p>
+                        <div class="project-tech">
+                            <span>Python</span>
+                            <span>OpenAI</span>
+                            <span>FastAPI</span>
+                        </div>
+                    </div>
+                </article>
+                <article class="project-card reveal" data-category="mobile">
+                    <div class="project-image" style="background: linear-gradient(135deg, #a8edea, #fed6e3);">
+                        <div class="project-overlay">
+                            <a href="#" class="project-link" aria-label="View live">&#8599;</a>
+                            <a href="#" class="project-link" aria-label="View code">&lt;/&gt;</a>
+                        </div>
+                    </div>
+                    <div class="project-info">
+                        <span class="project-category">Mobile App</span>
+                        <h3>Weather App</h3>
+                        <p>Beautiful weather app with hourly forecasts and location-based alerts.</p>
+                        <div class="project-tech">
+                            <span>Flutter</span>
+                            <span>API</span>
+                            <span>Maps</span>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section id="contact" class="section contact">
+        <div class="container">
+            <div class="section-header reveal">
+                <p class="section-subtitle">Get In Touch</p>
+                <h2 class="section-title">Let's Work Together</h2>
+            </div>
+            <div class="contact-content">
+                <div class="contact-info reveal">
+                    <h3>Let's talk about your project</h3>
+                    <p>I'm always open to new opportunities and interesting projects. Send a message and I'll get back to you soon.</p>
+                    <div class="contact-items">
+                        <div class="contact-item">
+                            <div class="contact-icon">&#9993;</div>
+                            <div>
+                                <h4>Email</h4>
+                                <p>hello@johndoe.dev</p>
+                            </div>
+                        </div>
+                        <div class="contact-item">
+                            <div class="contact-icon">&#9742;</div>
+                            <div>
+                                <h4>Phone</h4>
+                                <p>+1 (555) 123-4567</p>
+                            </div>
+                        </div>
+                        <div class="contact-item">
+                            <div class="contact-icon">&#9873;</div>
+                            <div>
+                                <h4>Location</h4>
+                                <p>San Francisco, CA</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <form class="contact-form reveal" id="contactForm">
+                    <div class="form-group">
+                        <input type="text" id="name" name="name" placeholder=" " required>
+                        <label for="name">Your Name</label>
+                    </div>
+                    <div class="form-group">
+                        <input type="email" id="email" name="email" placeholder=" " required>
+                        <label for="email">Your Email</label>
+                    </div>
+                    <div class="form-group">
+                        <input type="text" id="subject" name="subject" placeholder=" " required>
+                        <label for="subject">Subject</label>
+                    </div>
+                    <div class="form-group">
+                        <textarea id="message" name="message" rows="5" placeholder=" " required></textarea>
+                        <label for="message">Your Message</label>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Send Message</button>
+                    <p class="form-status" id="formStatus"></p>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <a href="#home" class="nav-logo">JD<span class="dot">.</span></a>
+                <p>&copy; <span id="year"></span> John Doe. Crafted with care.</p>
+                <button class="back-to-top" id="backToTop" aria-label="Back to top">&#8593;</button>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
 </body>
 </html>
