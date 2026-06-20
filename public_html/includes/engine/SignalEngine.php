@@ -21,70 +21,13 @@ final class SignalEngine
     /** Generate (and persist) signals from a completed scanner analysis. */
     public static function fromAnalysis(array $a, string $style = 'intraday'): ?array
     {
-        $s      = $a['snapshot'];
-        $struct = $a['structure'];
-        $smc    = $a['smc'];
-        $zones  = $a['zones'];
-        $ohlcvVolume = $s['volume'];
-
-        $weights = self::weights();
+        $s = $a['snapshot'];
         $minConf = (float) Helpers::setting('signal_min_confidence', 60);
 
-        // Determine directional bias
-        $bullScore = 0.0; $bearScore = 0.0;
-        $confluences = [];
-
-        // --- Trend confirmation ---
-        $trendComp = 0.0;
-        if ($struct['trend'] === 'uptrend')   { $trendComp = 1.0; }
-        elseif ($struct['trend'] === 'downtrend') { $trendComp = -1.0; }
-        else { $trendComp = max(-0.5, min(0.5, $struct['trend_score'] / 100)); }
-        $confluences['trend'] = self::component($weights['trend'], $trendComp);
-
-        // --- Volume confirmation ---
-        $volComp = 0.0;
-        if ($s['obv'] !== null) {
-            // direction of OBV vs price as proxy; plus volume vs typical
-            $volComp = ($s['macd_hist'] ?? 0) >= 0 ? 0.6 : -0.6;
-        }
-        // Stronger if current volume notably above zero baseline
-        $volComp += ($ohlcvVolume > 0) ? ($trendComp >= 0 ? 0.2 : -0.2) : 0;
-        $volComp = max(-1, min(1, $volComp));
-        $confluences['volume'] = self::component($weights['volume'], $volComp);
-
-        // --- RSI confirmation ---
-        $rsiComp = 0.0;
-        if ($s['rsi'] !== null) {
-            if ($s['rsi'] < 30)      { $rsiComp = 0.8; }   // oversold -> long bias
-            elseif ($s['rsi'] > 70)  { $rsiComp = -0.8; }  // overbought -> short bias
-            else { $rsiComp = ($s['rsi'] - 50) / 50; }     // momentum lean
-        }
-        $confluences['rsi'] = self::component($weights['rsi'], $rsiComp);
-
-        // --- Structure confirmation (BOS/CHOCH/HH-HL) ---
-        $structComp = max(-1, min(1, $struct['trend_score'] / 100));
-        foreach ($smc['bos_choch'] ?? [] as $e) {
-            $structComp += ($e['direction'] === 'bullish') ? 0.3 : -0.3;
-        }
-        $structComp = max(-1, min(1, $structComp));
-        $confluences['structure'] = self::component($weights['structure'], $structComp);
-
-        // --- Supply/Demand confirmation ---
-        $price = $s['price'];
-        $nearest = SupplyDemand::nearest($zones, $price);
-        $sdComp = 0.0;
-        if ($nearest['demand']) {
-            $dist = abs($price - (($nearest['demand']['high'] + $nearest['demand']['low']) / 2)) / max($price, 1e-9);
-            if ($dist < 0.02) { $sdComp += 0.7; }   // sitting on demand -> long
-        }
-        if ($nearest['supply']) {
-            $dist = abs((($nearest['supply']['high'] + $nearest['supply']['low']) / 2) - $price) / max($price, 1e-9);
-            if ($dist < 0.02) { $sdComp -= 0.7; }   // sitting on supply -> short
-        }
-        if (($smc['premium_discount']['zone'] ?? '') === 'discount') { $sdComp += 0.3; }
-        elseif (($smc['premium_discount']['zone'] ?? '') === 'premium') { $sdComp -= 0.3; }
-        $sdComp = max(-1, min(1, $sdComp));
-        $confluences['supply_demand'] = self::component($weights['supply_demand'], $sdComp);
+        $cc          = self::computeConfluences($a);
+        $confluences = $cc['confluences'];
+        $price       = $cc['price'];
+        $nearest     = $cc['nearest'];
 
         // Aggregate
         $net = 0.0;
@@ -197,6 +140,129 @@ final class SignalEngine
             'tp2'   => round($tp2, 8),
             'tp3'   => round($tp3, 8),
             'rr'    => $rr,
+        ];
+    }
+
+    /**
+     * Compute the five weighted confluence components for an analysis.
+     * Shared by fromAnalysis() (gated) and instant() (always returns).
+     */
+    private static function computeConfluences(array $a): array
+    {
+        $s      = $a['snapshot'];
+        $struct = $a['structure'];
+        $smc    = $a['smc'];
+        $zones  = $a['zones'];
+        $weights = self::weights();
+        $confluences = [];
+
+        // Trend
+        if ($struct['trend'] === 'uptrend')        { $trendComp = 1.0; }
+        elseif ($struct['trend'] === 'downtrend')  { $trendComp = -1.0; }
+        else { $trendComp = max(-0.5, min(0.5, $struct['trend_score'] / 100)); }
+        $confluences['trend'] = self::component($weights['trend'], $trendComp);
+
+        // Volume
+        $volComp = 0.0;
+        if ($s['obv'] !== null) { $volComp = ($s['macd_hist'] ?? 0) >= 0 ? 0.6 : -0.6; }
+        $volComp += ($s['volume'] > 0) ? ($trendComp >= 0 ? 0.2 : -0.2) : 0;
+        $confluences['volume'] = self::component($weights['volume'], max(-1, min(1, $volComp)));
+
+        // RSI
+        $rsiComp = 0.0;
+        if ($s['rsi'] !== null) {
+            if ($s['rsi'] < 30)     { $rsiComp = 0.8; }
+            elseif ($s['rsi'] > 70) { $rsiComp = -0.8; }
+            else { $rsiComp = ($s['rsi'] - 50) / 50; }
+        }
+        $confluences['rsi'] = self::component($weights['rsi'], $rsiComp);
+
+        // Structure
+        $structComp = max(-1, min(1, $struct['trend_score'] / 100));
+        foreach ($smc['bos_choch'] ?? [] as $e) {
+            $structComp += ($e['direction'] === 'bullish') ? 0.3 : -0.3;
+        }
+        $confluences['structure'] = self::component($weights['structure'], max(-1, min(1, $structComp)));
+
+        // Supply / Demand
+        $price = $s['price'];
+        $nearest = SupplyDemand::nearest($zones, $price);
+        $sdComp = 0.0;
+        if ($nearest['demand']) {
+            $d = abs($price - (($nearest['demand']['high'] + $nearest['demand']['low']) / 2)) / max($price, 1e-9);
+            if ($d < 0.02) { $sdComp += 0.7; }
+        }
+        if ($nearest['supply']) {
+            $d = abs((($nearest['supply']['high'] + $nearest['supply']['low']) / 2) - $price) / max($price, 1e-9);
+            if ($d < 0.02) { $sdComp -= 0.7; }
+        }
+        if (($smc['premium_discount']['zone'] ?? '') === 'discount') { $sdComp += 0.3; }
+        elseif (($smc['premium_discount']['zone'] ?? '') === 'premium') { $sdComp -= 0.3; }
+        $confluences['supply_demand'] = self::component($weights['supply_demand'], max(-1, min(1, $sdComp)));
+
+        return ['confluences' => $confluences, 'price' => $price, 'nearest' => $nearest];
+    }
+
+    /**
+     * INSTANT / AUTO signal - always returns a best-effort signal (never null),
+     * for the "submit a chart, get a signal" auto-analyzer.
+     *
+     * Optionally folds in a rule-based ChartReader bias as a 6th confluence.
+     *
+     * @param array      $a         analysis bundle (snapshot/structure/zones/smc/symbol/timeframe)
+     * @param string     $style     scalping|intraday|swing
+     * @param array|null $chartRead optional ChartReader::analyze() result
+     */
+    public static function instant(array $a, string $style = 'intraday', ?array $chartRead = null): array
+    {
+        $cc          = self::computeConfluences($a);
+        $confluences = $cc['confluences'];
+        $price       = $cc['price'];
+        $nearest     = $cc['nearest'];
+        $s           = $a['snapshot'];
+
+        // Optional chart-read confluence (weight 15, on top; normalised later)
+        if ($chartRead && ($chartRead['ok'] ?? false)) {
+            $confluences['chart_read'] = self::component(15, (float) ($chartRead['bias_factor'] ?? 0));
+        }
+
+        $net = 0.0;
+        foreach ($confluences as $comp) { $net += $comp['signed']; }
+
+        // Direction: net lean; tie-break with structure trend, then chart bias.
+        if (abs($net) < 0.01) {
+            $net = ($a['structure']['trend_score'] ?? 0) <=> 0;
+            if ($net === 0 && $chartRead) { $net = (float) ($chartRead['bias_factor'] ?? 0); }
+        }
+        $direction = $net >= 0 ? 'long' : 'short';
+
+        // Confidence = aligned component magnitude + aligned count of confirmations
+        $confidence = 0.0; $aligned = 0;
+        foreach ($confluences as $comp) {
+            $agrees = ($direction === 'long' && $comp['signed'] > 0) || ($direction === 'short' && $comp['signed'] < 0);
+            if ($agrees) { $confidence += abs($comp['signed']); $aligned++; }
+        }
+        $confidence = round(min(100, $confidence), 2);
+
+        $atr = $s['atr'] ?: ($price * 0.01);
+        $levels = self::levels($direction, $price, $atr, $nearest, $style);
+
+        return [
+            'symbol'      => $a['symbol'] ?? '',
+            'timeframe'   => $a['timeframe'] ?? '',
+            'style'       => $style,
+            'direction'   => $direction,
+            'entry'       => $levels['entry'],
+            'stop_loss'   => $levels['sl'],
+            'tp1'         => $levels['tp1'],
+            'tp2'         => $levels['tp2'],
+            'tp3'         => $levels['tp3'],
+            'risk_reward' => $levels['rr'],
+            'confidence'  => $confidence,
+            'aligned'     => $aligned,
+            'grade'       => $confidence >= 75 ? 'A' : ($confidence >= 60 ? 'B' : ($confidence >= 45 ? 'C' : 'D')),
+            'confluences' => $confluences,
+            'on_demand'   => true,
         ];
     }
 

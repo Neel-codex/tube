@@ -7,6 +7,7 @@ $nav = [
   ['terminal','Terminal','/terminal/','M4 5h16v14H4zM8 9l3 3-3 3'],
   ['scanner','Scanner','/scanner/','M4 6h16M4 12h10M4 18h7'],
   ['signals','Signals','/signals/','M13 2L3 14h7l-1 8 10-12h-7z'],
+  ['autosignal','Auto Signal','/autosignal/','M12 3v18M5 10l7-7 7 7'],
   ['watchlists','Watchlists','/watchlists/','M5 4h14v16l-7-4-7 4z'],
   ['journal','Journal','/journal/','M4 4h16v16H4zM8 8h8M8 12h8M8 16h5'],
   ['portfolio','Portfolio','/portfolio/','M3 13h4v8H3zM10 7h4v14h-4zM17 10h4v11h-4z'],
