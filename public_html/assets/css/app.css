@@ -1,0 +1,80 @@
+/* TradeVision Pro - Institutional Trading Terminal theme */
+:root{
+  --bg:#0B0F19; --card:#121826; --card-2:#0F1623; --border:#1E2A3D;
+  --primary:#3B82F6; --success:#10B981; --danger:#EF4444; --warning:#F59E0B;
+  --text:#E5EAF2; --muted:#8A97AD;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  margin:0; -webkit-font-smoothing:antialiased;
+}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#243246;border-radius:6px}
+::-webkit-scrollbar-thumb:hover{background:#33455e}
+
+/* Glassmorphism cards */
+.glass{
+  background:linear-gradient(180deg,rgba(18,24,38,.85),rgba(15,22,35,.75));
+  border:1px solid rgba(59,130,246,.12);
+  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  border-radius:16px;
+}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px}
+.card-2{background:var(--card-2);border:1px solid var(--border);border-radius:12px}
+
+/* Glow + gradients */
+.glow-primary{box-shadow:0 0 0 1px rgba(59,130,246,.25),0 8px 40px -8px rgba(59,130,246,.45)}
+.text-gradient{background:linear-gradient(90deg,#60A5FA,#3B82F6,#8B5CF6);-webkit-background-clip:text;background-clip:text;color:transparent}
+.bg-grid{background-image:radial-gradient(rgba(59,130,246,.08) 1px,transparent 1px);background-size:22px 22px}
+.hero-glow{position:absolute;inset:0;background:radial-gradient(60% 50% at 50% 0%,rgba(59,130,246,.18),transparent 70%);pointer-events:none}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:.5rem;justify-content:center;font-weight:600;border-radius:10px;padding:.6rem 1.1rem;transition:.18s;cursor:pointer;border:1px solid transparent;text-decoration:none}
+.btn-primary{background:linear-gradient(90deg,#3B82F6,#2563EB);color:#fff}
+.btn-primary:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.btn-ghost{background:transparent;border-color:var(--border);color:var(--text)}
+.btn-ghost:hover{border-color:var(--primary);color:#fff}
+.btn-success{background:var(--success);color:#04261c}
+.btn-danger{background:var(--danger);color:#fff}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* Badges / ratings */
+.badge{font-size:.7rem;font-weight:700;padding:.18rem .5rem;border-radius:999px;letter-spacing:.02em}
+.rating-strong_buy{background:rgba(16,185,129,.15);color:#34D399}
+.rating-buy{background:rgba(16,185,129,.10);color:#6EE7B7}
+.rating-neutral{background:rgba(148,163,184,.12);color:#94A3B8}
+.rating-sell{background:rgba(239,68,68,.10);color:#FCA5A5}
+.rating-strong_sell{background:rgba(239,68,68,.18);color:#F87171}
+.dir-long{color:var(--success)} .dir-short{color:var(--danger)}
+
+/* Inputs */
+.input{width:100%;background:var(--card-2);border:1px solid var(--border);border-radius:10px;padding:.65rem .85rem;color:var(--text);outline:none;transition:.15s}
+.input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
+label.lbl{display:block;font-size:.8rem;color:var(--muted);margin-bottom:.35rem}
+
+/* Table */
+.tvp-table{width:100%;border-collapse:collapse;font-size:.86rem}
+.tvp-table th{position:sticky;top:0;background:var(--card-2);color:var(--muted);text-align:left;padding:.7rem .8rem;font-weight:600;cursor:pointer;user-select:none;border-bottom:1px solid var(--border);white-space:nowrap}
+.tvp-table td{padding:.6rem .8rem;border-bottom:1px solid rgba(30,42,61,.6)}
+.tvp-table tbody tr:hover{background:rgba(59,130,246,.05)}
+
+/* Sidebar */
+.sidebar-link{display:flex;align-items:center;gap:.75rem;padding:.62rem .9rem;border-radius:10px;color:var(--muted);font-weight:500;transition:.15s;text-decoration:none}
+.sidebar-link:hover{background:rgba(59,130,246,.08);color:#fff}
+.sidebar-link.active{background:rgba(59,130,246,.14);color:#fff;box-shadow:inset 2px 0 0 var(--primary)}
+
+/* Toast */
+#toast-wrap{position:fixed;top:1rem;right:1rem;z-index:9999;display:flex;flex-direction:column;gap:.5rem}
+.toast{min-width:240px;max-width:360px;padding:.8rem 1rem;border-radius:10px;color:#fff;font-size:.85rem;box-shadow:0 10px 30px -10px rgba(0,0,0,.6);animation:slidein .25s ease}
+.toast.success{background:#0e7a5b} .toast.error{background:#b03434} .toast.info{background:#2c5cab}
+@keyframes slidein{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+@keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.3}}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--success);animation:pulse-dot 1.4s infinite;display:inline-block}
+.fade-in{animation:fadein .4s ease}
+@keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.skeleton{background:linear-gradient(90deg,#161e2e 25%,#1d273a 50%,#161e2e 75%);background-size:200% 100%;animation:shimmer 1.3s infinite;border-radius:8px}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}

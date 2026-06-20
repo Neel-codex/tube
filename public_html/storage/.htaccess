@@ -1,0 +1,3 @@
+# Deny all web access to storage (cache + logs)
+Require all denied
+Deny from all

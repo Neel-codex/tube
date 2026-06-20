@@ -1,0 +1,17 @@
+# Runtime-generated content (keep dirs via .gitkeep)
+public_html/storage/cache/*
+public_html/storage/logs/*
+public_html/uploads/charts/*
+public_html/uploads/payments/*
+public_html/uploads/profiles/*
+!.gitkeep
+!.htaccess
+
+# Local DB / test artifacts
+*.lock
+*.log
+.DS_Store
+
+# Note: config/config.php is committed as a template with placeholder
+# credentials. Edit it on the server (or use TVP_* env vars). Do NOT
+# commit real production secrets.
