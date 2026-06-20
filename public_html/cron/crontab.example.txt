@@ -1,0 +1,27 @@
+# =====================================================================
+# TradeVision Pro - cPanel Cron Jobs
+# Replace /home/USER/public_html with your actual path.
+# In cPanel: "Cron Jobs" -> add each line. PHP path is usually
+# /usr/local/bin/php  or  /opt/cpanel/ea-php82/root/usr/bin/php
+# =====================================================================
+
+# --- Market scanner (multi-timeframe) -------------------------------
+* * * * *      /usr/local/bin/php /home/USER/public_html/cron/scan.php 1m   >/dev/null 2>&1
+*/5 * * * *    /usr/local/bin/php /home/USER/public_html/cron/scan.php 5m   >/dev/null 2>&1
+*/15 * * * *   /usr/local/bin/php /home/USER/public_html/cron/scan.php 15m  >/dev/null 2>&1
+0 * * * *      /usr/local/bin/php /home/USER/public_html/cron/scan.php 1h   >/dev/null 2>&1
+
+# --- Signal status tracking (TP/SL hits) ----------------------------
+*/2 * * * *    /usr/local/bin/php /home/USER/public_html/cron/signals_update.php >/dev/null 2>&1
+
+# --- User alerts ----------------------------------------------------
+*/2 * * * *    /usr/local/bin/php /home/USER/public_html/cron/alerts.php >/dev/null 2>&1
+
+# --- Hourly maintenance (subscriptions, cache, pruning) -------------
+0 * * * *      /usr/local/bin/php /home/USER/public_html/cron/maintenance.php >/dev/null 2>&1
+
+# =====================================================================
+# If your host blocks CLI cron, you can trigger via HTTP using a secret
+# key. Set settings.cron_key in the admin panel, then use:
+#   wget -q -O /dev/null "https://yourdomain.com/cron/scan.php?cron_key=YOURKEY&tf=15m"
+# =====================================================================
